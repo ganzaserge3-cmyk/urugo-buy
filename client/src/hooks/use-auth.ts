@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, ensureFirebaseAuth } from "@/lib/firebase";
 
 type AuthUser = {
   name: string;
@@ -55,7 +55,8 @@ export const useAuth = create<AuthStore>()(
           return;
         }
 
-        const credential = await signInWithEmailAndPassword(auth, email, password);
+        const firebaseAuth = ensureFirebaseAuth();
+        const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
         const fbUser = credential.user;
         const idToken = await fbUser.getIdToken();
         set({
@@ -77,9 +78,10 @@ export const useAuth = create<AuthStore>()(
         if (password !== confirmPassword) {
           throw new Error("Passwords do not match.");
         }
-        const credential = await createUserWithEmailAndPassword(auth, email, password);
-        if (auth.currentUser) {
-          await updateProfile(auth.currentUser, { displayName: name });
+        const firebaseAuth = ensureFirebaseAuth();
+        const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+        if (firebaseAuth.currentUser) {
+          await updateProfile(firebaseAuth.currentUser, { displayName: name });
         }
         const fbUser = credential.user;
         const idToken = await fbUser.getIdToken();
@@ -100,7 +102,9 @@ export const useAuth = create<AuthStore>()(
             headers: { Authorization: `Bearer ${token}` },
           }).catch(() => undefined);
         }
-        signOut(auth).catch(() => undefined);
+        if (auth) {
+          signOut(auth).catch(() => undefined);
+        }
         set({ user: null, token: null });
       },
     }),

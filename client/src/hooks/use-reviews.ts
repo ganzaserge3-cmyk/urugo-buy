@@ -16,7 +16,7 @@ export function useReviews(productId: number) {
 export function useCreateReview(productId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { rating: number; comment: string; photoUrl?: string }) => {
+    mutationFn: async (payload: { rating: number; comment: string; photoUrl?: string; videoUrl?: string }) => {
       const res = await authFetch(`/api/reviews/${productId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

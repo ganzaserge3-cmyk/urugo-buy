@@ -197,9 +197,9 @@ export default function Home() {
           <h2 className="font-display text-3xl font-bold mb-12 text-center">What Our Customers Say</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { name: "Alex Rivera", role: "Customer", text: "The fruit quality is always excellent and delivery is right on time every week." },
-              { name: "Sarah Chen", role: "Home Cook", text: "Fresh ingredients and fair prices. It makes meal prep so much easier for my family." },
-              { name: "Michael Vance", role: "Fitness Coach", text: "I order weekly for clean eating plans. Produce arrives fresh and packed with care." }
+              { name: "Umwali ketia", role: "Customer", text: "The fruit quality is always excellent and delivery is right on time every week." },
+              { name: "Ganza Serge", role: "Home Cook", text: "Fresh ingredients and fair prices. It makes meal prep so much easier for my family." },
+              { name: "Mvunije Cedric", role: "Fitness Coach", text: "I order weekly for clean eating plans. Produce arrives fresh and packed with care." }
             ].map((review, idx) => (
               <motion.div 
                 key={idx}
@@ -226,12 +226,12 @@ export default function Home() {
       </section>
 
       {/* Newsletter */}
-      <section className="py-24 bg-primary text-primary-foreground relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-white/10 to-transparent" />
+      <section className="py-24 bg-slate-900 text-white dark:bg-slate-950 dark:text-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-white/15 to-transparent" />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 relative text-center">
-          <Mail className="w-12 h-12 mx-auto mb-6 text-primary-foreground/80" />
+          <Mail className="w-12 h-12 mx-auto mb-6 text-white/85" />
           <h2 className="font-display text-4xl md:text-5xl font-bold mb-4">Join the Club</h2>
-          <p className="text-primary-foreground/80 text-lg mb-10 max-w-xl mx-auto">
+          <p className="text-white/85 text-lg mb-10 max-w-xl mx-auto">
             Subscribe to receive updates, access to exclusive deals, and more. We respect your inbox.
           </p>
           <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
@@ -241,13 +241,13 @@ export default function Home() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="h-14 rounded-full bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/30"
+              className="h-14 rounded-full bg-white border-white/20 text-slate-900 placeholder:text-slate-500 focus-visible:ring-white/30 dark:bg-black/35 dark:border-white/35 dark:text-white dark:placeholder:text-white/70 dark:focus-visible:ring-white/50 backdrop-blur-sm"
             />
             <Button 
               type="submit" 
               size="lg" 
               disabled={subscribeMutation.isPending}
-              className="h-14 rounded-full px-8 bg-white text-primary hover:bg-white/90"
+              className="h-14 rounded-full px-8 bg-white text-slate-900 hover:bg-white/90 dark:bg-emerald-400 dark:text-slate-950 dark:hover:bg-emerald-300"
             >
               {subscribeMutation.isPending ? "Subscribing..." : "Subscribe"}
             </Button>

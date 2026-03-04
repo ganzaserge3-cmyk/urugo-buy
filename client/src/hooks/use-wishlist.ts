@@ -53,3 +53,20 @@ export function useSharedWishlist(token: string) {
     enabled: token.trim().length > 0,
   });
 }
+
+export function useImportSharedWishlist() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const res = await authFetch(`/api/wishlist/share/${token}/import`, { method: "POST" });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({ message: "Failed to import wishlist" }));
+        throw new Error(payload.message || "Failed to import wishlist");
+      }
+      return res.json() as Promise<{ ok: boolean; imported: number }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wishlist"] });
+    },
+  });
+}

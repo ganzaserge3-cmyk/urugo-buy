@@ -110,11 +110,18 @@ export default function OrderSuccess() {
         {tracking && (
           <div className="mb-8 border border-border rounded-xl p-4 bg-muted/20">
             <h3 className="font-semibold mb-3">Order Tracking</h3>
+            <div className="mb-3">
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-primary transition-all" style={{ width: `${tracking.progress || 0}%` }} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Progress: {tracking.progress || 0}%</p>
+            </div>
             <div className="space-y-2">
-              {tracking.timeline.map((step: { status: string; completed: boolean }) => (
+              {tracking.timeline.map((step: { status: string; completed: boolean; timestamp?: string }) => (
                 <div key={step.status} className="flex items-center gap-2 text-sm">
                   <span className={`h-2.5 w-2.5 rounded-full ${step.completed ? "bg-primary" : "bg-muted-foreground/30"}`} />
                   <span className="capitalize">{step.status}</span>
+                  {step.timestamp && <span className="text-xs text-muted-foreground">{new Date(step.timestamp).toLocaleString()}</span>}
                 </div>
               ))}
             </div>

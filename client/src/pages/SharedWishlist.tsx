@@ -1,12 +1,17 @@
 import { Link, useParams } from "wouter";
 import { ProductCard } from "@/components/ProductCard";
 import { Button } from "@/components/ui/button";
-import { useSharedWishlist } from "@/hooks/use-wishlist";
+import { useSharedWishlist, useImportSharedWishlist } from "@/hooks/use-wishlist";
 import { useSeo } from "@/hooks/use-seo";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function SharedWishlist() {
   const { token = "" } = useParams<{ token: string }>();
   const { data, isLoading, isError } = useSharedWishlist(token);
+  const importWishlist = useImportSharedWishlist();
+  const { user } = useAuth();
+  const { toast } = useToast();
   useSeo("Shared Wishlist - UrugoBuy", "Browse products from a shared wishlist.");
 
   if (isLoading) {
@@ -37,11 +42,34 @@ export default function SharedWishlist() {
 
   const items = Array.isArray(data) ? data : [];
 
+  const handleImport = async () => {
+    try {
+      const result = await importWishlist.mutateAsync(token);
+      toast({
+        title: "Wishlist imported",
+        description: `${result.imported} item${result.imported === 1 ? "" : "s"} added to your wishlist.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "Please try again",
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen pt-24 pb-20 px-4 bg-background">
       <div className="max-w-7xl mx-auto">
         <h1 className="font-display text-4xl font-bold mb-2">Shared Wishlist</h1>
         <p className="text-muted-foreground mb-8">{items.length} saved item{items.length === 1 ? "" : "s"}</p>
+        {user && items.length > 0 && (
+          <div className="mb-6">
+            <Button onClick={handleImport} disabled={importWishlist.isPending} className="rounded-full">
+              Import To My Wishlist
+            </Button>
+          </div>
+        )}
         {items.length === 0 ? (
           <div className="border border-border rounded-2xl p-8 bg-card text-center">
             <p className="text-muted-foreground">No products in this shared wishlist.</p>

@@ -8,5 +8,18 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+const hasRequiredFirebaseConfig =
+  Boolean(firebaseConfig.apiKey) &&
+  Boolean(firebaseConfig.authDomain) &&
+  Boolean(firebaseConfig.projectId) &&
+  Boolean(firebaseConfig.appId);
+
+const app = hasRequiredFirebaseConfig ? initializeApp(firebaseConfig) : null;
+export const auth = app ? getAuth(app) : null;
+
+export function ensureFirebaseAuth() {
+  if (!auth) {
+    throw new Error("Firebase auth is not configured. Please set VITE_FIREBASE_* environment variables.");
+  }
+  return auth;
+}

@@ -13,14 +13,17 @@ import {
   contentPages,
   currencyRates,
   coupons,
+  giftCards,
   notificationLogs,
   notificationSubscriptions,
   orderItems,
   orderMeta,
   orders,
   productQuestions,
+  productAlerts,
   productReviews,
   promotions,
+  referralClaims,
   products,
   returnStatusEvents,
   returnRequests,
@@ -48,10 +51,11 @@ const abandonedCartLog: Array<{ email?: string; itemCount: number; createdAt: st
 const firebaseSessionCache = new Map<string, { session: SessionValue; expiresAt: number }>();
 
 const deliverySlots = [
-  "Today 6:00 PM - 8:00 PM",
-  "Tomorrow 9:00 AM - 12:00 PM",
-  "Tomorrow 2:00 PM - 5:00 PM",
-  "Tomorrow 6:00 PM - 9:00 PM",
+  { id: "today-evening", label: "Today 6:00 PM - 8:00 PM", capacity: 30, isPickup: false },
+  { id: "tomorrow-morning", label: "Tomorrow 9:00 AM - 12:00 PM", capacity: 40, isPickup: false },
+  { id: "tomorrow-afternoon", label: "Tomorrow 2:00 PM - 5:00 PM", capacity: 35, isPickup: false },
+  { id: "tomorrow-evening", label: "Tomorrow 6:00 PM - 9:00 PM", capacity: 28, isPickup: false },
+  { id: "pickup-2h", label: "Store Pickup - Ready in 2 hours", capacity: 80, isPickup: true },
 ];
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -230,6 +234,52 @@ function createRateLimiter(limit: number, windowMs: number) {
   };
 }
 
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const dp = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function computeSearchScore(name: string, query: string): number {
+  const n = normalizeSearchText(name);
+  const q = normalizeSearchText(query);
+  if (!q) return 0;
+  if (n === q) return 100;
+  if (n.startsWith(q)) return 90;
+  if (n.includes(q)) return 75;
+
+  const tokens = q.split(" ").filter(Boolean);
+  const tokenMatches = tokens.filter((token) => n.includes(token)).length;
+  if (tokenMatches > 0) return 55 + Math.min(20, tokenMatches * 10);
+
+  const distance = levenshtein(n, q);
+  const maxLen = Math.max(n.length, q.length) || 1;
+  const similarity = 1 - distance / maxLen;
+  return similarity >= 0.45 ? Math.round(similarity * 50) : 0;
+}
+
+function referralCodeFromEmail(email: string): string {
+  return email.split("@")[0].toUpperCase().slice(0, 6);
+}
+
 async function computeDiscount(couponCode: string | undefined, subtotal: number) {
   if (!couponCode) {
     return { discount: 0, coupon: null as null | { code: string; discountType: string } };
@@ -252,6 +302,65 @@ async function computeDiscount(couponCode: string | undefined, subtotal: number)
     }),
     coupon: { code: coupon.code, discountType: coupon.discountType },
   };
+}
+
+function getTaxRateByCountry(country: string | undefined): number {
+  const code = (country || "USA").toUpperCase();
+  const table: Record<string, number> = { USA: 0.08, UK: 0.2, DE: 0.19, FR: 0.2, RW: 0.18, CA: 0.13 };
+  return table[code] ?? 0.08;
+}
+
+async function computeGiftCardDiscount(giftCardCode: string | undefined, totalBeforeGift: number) {
+  if (!giftCardCode) {
+    return { discount: 0, giftCard: null as null | { code: string } };
+  }
+
+  const [giftCard] = await db
+    .select()
+    .from(giftCards)
+    .where(and(sql`LOWER(${giftCards.code}) = ${giftCardCode.toLowerCase()}`, eq(giftCards.active, true)))
+    .limit(1);
+
+  if (!giftCard) {
+    return { discount: 0, giftCard: null };
+  }
+
+  const balance = Number(giftCard.balance);
+  const discount = Math.max(0, Math.min(balance, totalBeforeGift));
+  return {
+    discount: roundCurrency(discount),
+    giftCard: { code: giftCard.code },
+  };
+}
+
+async function getDeliverySlotsWithCapacity() {
+  const fromDate = new Date(Date.now() - 36 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      slot: orderMeta.deliverySlot,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(orderMeta)
+    .innerJoin(orders, eq(orders.id, orderMeta.orderId))
+    .where(and(gte(orders.createdAt, fromDate), sql`${orders.status} <> 'cancelled'`))
+    .groupBy(orderMeta.deliverySlot);
+
+  const bookedByLabel = new Map(
+    rows
+      .filter((row) => typeof row.slot === "string" && row.slot.length > 0)
+      .map((row) => [row.slot as string, Number(row.count || 0)]),
+  );
+
+  return deliverySlots.map((slot) => {
+    const booked = bookedByLabel.get(slot.label) || 0;
+    const remaining = Math.max(0, slot.capacity - booked);
+    return {
+      ...slot,
+      booked,
+      remaining,
+      available: remaining > 0,
+    };
+  });
 }
 
 async function ensureDefaultAdminUser() {
@@ -452,8 +561,7 @@ export async function registerRoutes(
   app.get("/api/tax/estimate", async (req, res) => {
     const country = typeof req.query.country === "string" ? req.query.country.toUpperCase() : "USA";
     const subtotal = Number(req.query.subtotal || 0);
-    const table: Record<string, number> = { USA: 0.08, UK: 0.2, DE: 0.19, FR: 0.2 };
-    const rate = table[country] ?? 0.08;
+    const rate = getTaxRateByCountry(country);
     return res.json({ country, rate, tax: roundCurrency(subtotal * rate) });
   });
 
@@ -471,6 +579,39 @@ export async function registerRoutes(
         .orderBy(desc(products.rating), asc(products.name))
         .limit(8);
       return res.json(rows);
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/search/advanced", async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
+      const featured = req.query.featured === "true" ? true : undefined;
+      const inStock = req.query.inStock === "true" ? true : undefined;
+      const minPrice = req.query.minPrice ? Number(req.query.minPrice) : undefined;
+      const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : undefined;
+      const sort = typeof req.query.sort === "string"
+        ? req.query.sort as "newest" | "price-asc" | "price-desc" | "rating-desc" | "name-asc"
+        : "newest";
+
+      const base = await storage.getProducts({
+        categoryId: Number.isFinite(categoryId) ? categoryId : undefined,
+        featured,
+        inStock,
+        minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
+        maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
+        sort,
+      });
+
+      const normalizedQuery = normalizeSearchText(q);
+      const scored = base
+        .map((item) => ({ item, score: computeSearchScore(item.name, normalizedQuery) }))
+        .filter((entry) => normalizedQuery.length === 0 || entry.score > 0)
+        .sort((a, b) => b.score - a.score || Number(b.item.rating) - Number(a.item.rating));
+
+      return res.json(scored.map((entry) => entry.item));
     } catch {
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -509,6 +650,42 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/bundles/:productId", async (req, res) => {
+    try {
+      const productId = Number(req.params.productId);
+      if (!Number.isFinite(productId) || productId <= 0) {
+        return res.status(400).json({ message: "Invalid product ID" });
+      }
+
+      const paired = await db.execute(sql`
+        SELECT oi2.product_id as "productId", COUNT(*)::int as "pairCount"
+        FROM order_items oi1
+        INNER JOIN order_items oi2 ON oi1.order_id = oi2.order_id
+        WHERE oi1.product_id = ${productId} AND oi2.product_id <> ${productId}
+        GROUP BY oi2.product_id
+        ORDER BY "pairCount" DESC
+        LIMIT 4
+      `);
+
+      const rows = (paired as unknown as { rows: Array<{ productId: number; pairCount: number }> }).rows || [];
+      if (rows.length === 0) return res.json([]);
+
+      const ids = rows.map((row) => Number(row.productId)).filter((id) => Number.isFinite(id));
+      const productsRows = await db.select().from(products).where(inArray(products.id, ids));
+      const pairMap = new Map(rows.map((row) => [Number(row.productId), Number(row.pairCount || 0)]));
+      const payload = productsRows
+        .map((item) => ({
+          ...item,
+          pairCount: pairMap.get(item.id) || 0,
+        }))
+        .sort((a, b) => b.pairCount - a.pairCount);
+
+      return res.json(payload);
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/compare", async (req, res) => {
     try {
       const idsRaw = typeof req.query.ids === "string" ? req.query.ids : "";
@@ -535,7 +712,19 @@ export async function registerRoutes(
       .from(productReviews)
       .where(eq(productReviews.productId, productId))
       .orderBy(desc(productReviews.id));
-    return res.json(rows);
+
+    const buyers = await db
+      .select({ email: orders.customerEmail })
+      .from(orders)
+      .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+      .where(and(eq(orderItems.productId, productId), sql`${orders.status} <> 'cancelled'`))
+      .groupBy(orders.customerEmail);
+    const buyerEmails = new Set(buyers.map((row) => row.email.toLowerCase()));
+
+    return res.json(rows.map((row) => ({
+      ...row,
+      verifiedPurchase: buyerEmails.has(row.userEmail.toLowerCase()),
+    })));
   });
 
   app.post("/api/reviews/:productId", async (req, res) => {
@@ -546,7 +735,22 @@ export async function registerRoutes(
         rating: z.number().min(1).max(5),
         comment: z.string().min(3).max(500),
         photoUrl: z.string().url().optional(),
+        videoUrl: z.string().url().optional(),
       }).parse(req.body);
+
+      const [purchase] = await db
+        .select({ id: orders.id })
+        .from(orders)
+        .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .where(and(
+          eq(orders.customerEmail, session.email),
+          eq(orderItems.productId, productId),
+          sql`${orders.status} <> 'cancelled'`,
+        ))
+        .limit(1);
+      if (!purchase) {
+        return res.status(400).json({ message: "Only customers who purchased this item can review it." });
+      }
 
       const [review] = await db.insert(productReviews).values({
         productId,
@@ -554,8 +758,9 @@ export async function registerRoutes(
         rating: input.rating.toFixed(1),
         comment: input.comment,
         photoUrl: input.photoUrl,
+        videoUrl: input.videoUrl,
       }).returning();
-      return res.status(201).json(review);
+      return res.status(201).json({ ...review, verifiedPurchase: true });
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
         return res.status(401).json({ message: "Unauthorized" });
@@ -699,7 +904,31 @@ export async function registerRoutes(
   });
 
   app.get("/api/delivery-slots", async (_req, res) => {
-    return res.json(deliverySlots);
+    const slots = await getDeliverySlotsWithCapacity();
+    return res.json(slots);
+  });
+
+  app.post("/api/gift-cards/redeem", async (req, res) => {
+    try {
+      const input = z.object({
+        code: z.string().min(3),
+        total: z.number().nonnegative(),
+      }).parse(req.body);
+      const { discount, giftCard } = await computeGiftCardDiscount(input.code, input.total);
+      if (!giftCard) {
+        return res.status(404).json({ message: "Gift card not found or inactive" });
+      }
+      return res.json({
+        code: giftCard.code,
+        discount,
+        remainingAfterApply: Math.max(0, roundCurrency(input.total - discount)),
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.post("/api/cart/abandoned", async (req, res) => {
@@ -837,12 +1066,21 @@ export async function registerRoutes(
     try {
       const input = api.checkout.quote.input.parse(req.body);
       const quote = await storage.getCheckoutQuote({ items: input.items });
+      const taxRate = getTaxRateByCountry(input.country);
+      const regionalTax = roundCurrency(quote.subtotal * taxRate);
+      const totalBeforeDiscounts = roundCurrency(quote.subtotal + quote.shippingFee + regionalTax);
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
-      const total = Math.max(0, roundCurrency(quote.total - discount));
+      const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
+      const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
+      const total = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
       res.json({
         ...quote,
+        tax: regionalTax,
+        taxRate,
         discount,
+        giftCardDiscount,
         couponCode: coupon?.code,
+        giftCardCode: giftCard?.code,
         total,
       });
     } catch (err) {
@@ -862,10 +1100,47 @@ export async function registerRoutes(
   app.post(api.orders.create.path, async (req, res) => {
     try {
       const input = api.orders.create.input.parse(req.body);
+      if (input.deliverySlot) {
+        const slots = await getDeliverySlotsWithCapacity();
+        const selected = slots.find((slot) => slot.label === input.deliverySlot);
+        if (!selected) {
+          return res.status(400).json({ message: "Selected delivery slot is invalid" });
+        }
+        if (!selected.available) {
+          return res.status(400).json({ message: "Selected delivery slot is full. Please choose another slot." });
+        }
+      }
       const order = await storage.createOrder(input);
+      const quote = await storage.getCheckoutQuote({ items: input.items });
+      const taxRate = getTaxRateByCountry(input.country);
+      const regionalTax = roundCurrency(quote.subtotal * taxRate);
+      const totalBeforeDiscounts = roundCurrency(quote.subtotal + quote.shippingFee + regionalTax);
+      const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
+      const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
+      const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
+      const finalTotal = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
+
+      await db
+        .update(orders)
+        .set({
+          subtotal: quote.subtotal.toFixed(2),
+          shippingFee: quote.shippingFee.toFixed(2),
+          tax: regionalTax.toFixed(2),
+          total: finalTotal.toFixed(2),
+        })
+        .where(eq(orders.id, order.id));
+
+      if (giftCard && giftCardDiscount > 0) {
+        await db
+          .update(giftCards)
+          .set({ balance: sql`GREATEST(0, ${giftCards.balance} - ${giftCardDiscount})` })
+          .where(eq(giftCards.code, giftCard.code));
+      }
       await db.insert(orderMeta).values({
         orderId: order.id,
-        couponCode: input.couponCode,
+        couponCode: coupon?.code,
+        giftCardCode: giftCard?.code,
+        giftCardDiscount: giftCardDiscount.toFixed(2),
         deliverySlot: input.deliverySlot,
         paymentMethod: input.paymentMethod || "card",
         paymentStatus: input.paymentMethod === "cod" ? "paid" : "pending",
@@ -882,7 +1157,7 @@ export async function registerRoutes(
         `UrugoBuy: Order ${order.orderNumber} confirmed. Total $${order.total.toFixed(2)}.`,
       ).catch(() => undefined);
 
-      res.status(201).json(order);
+      res.status(201).json({ ...order, total: finalTotal });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
@@ -930,12 +1205,15 @@ export async function registerRoutes(
 
       const statusOrder = ["pending", "packed", "shipped", "delivered"];
       const currentIndex = Math.max(0, statusOrder.indexOf(order.status));
+      const createdMs = new Date(order.createdAt).getTime();
       const timeline = statusOrder.map((s, idx) => ({
         status: s,
         completed: idx <= currentIndex,
+        timestamp: new Date(createdMs + idx * 6 * 60 * 60 * 1000).toISOString(),
       }));
       const eta = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
-      return res.json({ orderId: id, currentStatus: order.status, timeline, eta });
+      const progress = statusOrder.length > 1 ? Math.round((Math.max(0, currentIndex) / (statusOrder.length - 1)) * 100) : 0;
+      return res.json({ orderId: id, currentStatus: order.status, timeline, eta, progress });
     } catch {
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -1042,6 +1320,151 @@ export async function registerRoutes(
         .orderBy(desc(orders.id))
         .limit(20);
       return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/account/product-alerts", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db
+        .select()
+        .from(productAlerts)
+        .where(eq(productAlerts.userEmail, session.email))
+        .orderBy(desc(productAlerts.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/account/product-alerts/watch", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const input = z.object({
+        productId: z.number().int().positive(),
+        targetPrice: z.number().positive().optional(),
+        notifyOnPriceDrop: z.boolean().default(true),
+        notifyOnRestock: z.boolean().default(true),
+      }).parse(req.body);
+
+      const [product] = await db.select().from(products).where(eq(products.id, input.productId)).limit(1);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+
+      const [existing] = await db
+        .select()
+        .from(productAlerts)
+        .where(and(eq(productAlerts.userEmail, session.email), eq(productAlerts.productId, input.productId)))
+        .limit(1);
+
+      const payload = {
+        targetPrice: input.targetPrice !== undefined ? input.targetPrice.toFixed(2) : null,
+        baselinePrice: String(product.price),
+        baselineStock: product.stockQuantity,
+        notifyOnPriceDrop: input.notifyOnPriceDrop,
+        notifyOnRestock: input.notifyOnRestock,
+      };
+
+      if (existing) {
+        const [updated] = await db
+          .update(productAlerts)
+          .set(payload)
+          .where(eq(productAlerts.id, existing.id))
+          .returning();
+        return res.json(updated);
+      }
+
+      const [created] = await db
+        .insert(productAlerts)
+        .values({
+          userEmail: session.email,
+          productId: input.productId,
+          ...payload,
+        })
+        .returning();
+      return res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/account/product-alerts/:productId", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const productId = Number(req.params.productId);
+      if (!Number.isFinite(productId) || productId <= 0) {
+        return res.status(400).json({ message: "Invalid product ID" });
+      }
+      const deleted = await db
+        .delete(productAlerts)
+        .where(and(eq(productAlerts.userEmail, session.email), eq(productAlerts.productId, productId)))
+        .returning();
+      return res.json({ ok: true, deleted: deleted.length });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/account/alerts/feed", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const watches = await db
+        .select()
+        .from(productAlerts)
+        .where(eq(productAlerts.userEmail, session.email))
+        .orderBy(desc(productAlerts.id));
+      if (watches.length === 0) return res.json([]);
+
+      const productIds = watches.map((row) => row.productId);
+      const productRows = await db.select().from(products).where(inArray(products.id, productIds));
+      const productById = new Map(productRows.map((row) => [row.id, row]));
+
+      const items = watches.flatMap((watch) => {
+        const product = productById.get(watch.productId);
+        if (!product) return [];
+
+        const currentPrice = Number(product.price);
+        const baselinePrice = Number(watch.baselinePrice);
+        const targetPrice = watch.targetPrice ? Number(watch.targetPrice) : undefined;
+        const currentStock = product.stockQuantity;
+
+        const feed: Array<{ type: "price-drop" | "restock"; productId: number; productName: string; message: string }> = [];
+        if (watch.notifyOnPriceDrop && (currentPrice < baselinePrice || (targetPrice !== undefined && currentPrice <= targetPrice))) {
+          feed.push({
+            type: "price-drop",
+            productId: product.id,
+            productName: product.name,
+            message: `${product.name} dropped to $${currentPrice.toFixed(2)}.`,
+          });
+        }
+        if (watch.notifyOnRestock && watch.baselineStock <= 0 && currentStock > 0) {
+          feed.push({
+            type: "restock",
+            productId: product.id,
+            productName: product.name,
+            message: `${product.name} is back in stock (${currentStock} available).`,
+          });
+        }
+        return feed;
+      });
+
+      return res.json(items);
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
         return res.status(401).json({ message: "Unauthorized" });
@@ -1399,17 +1822,116 @@ export async function registerRoutes(
         .from(orders)
         .where(eq(orders.customerEmail, session.email));
       const spend = rows.reduce((sum, row) => sum + Number(row.total), 0);
-      const points = Math.floor(spend);
+      const referralCode = referralCodeFromEmail(session.email);
+      const referralRows = await db
+        .select()
+        .from(referralClaims)
+        .where(eq(referralClaims.referrerEmail, session.email));
+      const referralBonusPoints = referralRows.length * 100;
+      const points = Math.floor(spend) + referralBonusPoints;
       const tier = points >= 2000 ? "Gold" : points >= 800 ? "Silver" : "Bronze";
       return res.json({
         totalSpend: spend,
         loyaltyPoints: points,
         tier,
-        referralCode: session.email.split("@")[0].toUpperCase().slice(0, 6),
+        referralCode,
+        referralsCount: referralRows.length,
+        referralBonusPoints,
       });
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
         return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/wishlist/share/:token/import", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const token = req.params.token;
+      const [share] = await db
+        .select()
+        .from(wishlistShares)
+        .where(eq(wishlistShares.token, token))
+        .limit(1);
+      if (!share || share.expiresAt.getTime() < Date.now()) {
+        return res.status(404).json({ message: "Share link expired or not found" });
+      }
+
+      const sourceRows = await db.select().from(wishlists).where(eq(wishlists.userEmail, share.userEmail));
+      const sourceIds = Array.from(new Set(sourceRows.map((row) => row.productId)));
+      if (sourceIds.length === 0) return res.json({ ok: true, imported: 0 });
+
+      const existing = await db.select().from(wishlists).where(eq(wishlists.userEmail, session.email));
+      const existingIds = new Set(existing.map((row) => row.productId));
+      const rowsToInsert = sourceIds
+        .filter((id) => !existingIds.has(id))
+        .map((productId) => ({
+          userEmail: session.email,
+          productId,
+        }));
+
+      if (rowsToInsert.length > 0) {
+        await db.insert(wishlists).values(rowsToInsert);
+      }
+
+      return res.json({ ok: true, imported: rowsToInsert.length });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/account/referrals/redeem", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const input = z.object({
+        code: z.string().min(3).max(12),
+      }).parse(req.body);
+      const normalizedCode = input.code.toUpperCase().trim();
+
+      const [existingClaim] = await db
+        .select()
+        .from(referralClaims)
+        .where(eq(referralClaims.refereeEmail, session.email))
+        .limit(1);
+      if (existingClaim) {
+        return res.status(400).json({ message: "Referral code already redeemed for this account" });
+      }
+
+      const userRows = await db.select().from(users);
+      const referrer = userRows.find((u) => referralCodeFromEmail(u.email) === normalizedCode);
+      if (!referrer) {
+        return res.status(404).json({ message: "Referral code not found" });
+      }
+      if (referrer.email.toLowerCase() === session.email.toLowerCase()) {
+        return res.status(400).json({ message: "You cannot redeem your own referral code" });
+      }
+
+      const [claim] = await db
+        .insert(referralClaims)
+        .values({
+          referrerEmail: referrer.email,
+          refereeEmail: session.email,
+          code: normalizedCode,
+        })
+        .returning();
+
+      return res.status(201).json({
+        ok: true,
+        claimId: claim.id,
+        awardedPoints: 100,
+        message: "Referral redeemed successfully",
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
       }
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -1788,6 +2310,107 @@ export async function registerRoutes(
       await requireAdmin(req);
       const rows = await db.select().from(categories).orderBy(asc(categories.id));
       return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/gift-cards", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db.select().from(giftCards).orderBy(desc(giftCards.createdAt));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/gift-cards", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const input = z.object({
+        code: z.string().min(3).max(32).transform((value) => value.toUpperCase()),
+        balance: z.number().positive(),
+        active: z.boolean().default(true),
+      }).parse(req.body);
+      const [row] = await db
+        .insert(giftCards)
+        .values({
+          code: input.code,
+          balance: input.balance.toFixed(2),
+          active: input.active,
+        })
+        .onConflictDoUpdate({
+          target: giftCards.code,
+          set: {
+            balance: input.balance.toFixed(2),
+            active: input.active,
+          },
+        })
+        .returning();
+      return res.status(201).json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/abandoned-carts", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      return res.json(
+        abandonedCartLog
+          .slice()
+          .reverse()
+          .slice(0, 200),
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/abandoned-carts/recover", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const input = z.object({
+        email: z.string().email().optional(),
+        channel: z.enum(["email", "sms"]).default("email"),
+      }).parse(req.body);
+
+      const totalLogged = abandonedCartLog.length;
+      const recoverable = abandonedCartLog.filter((row) => Boolean(row.email)).length;
+      const sent = input.email ? 1 : Math.min(recoverable, 25);
+      return res.json({
+        ok: true,
+        journey: input.channel === "sms" ? "abandoned-cart-sms-nudge" : "abandoned-cart-email-series",
+        targeted: input.email || "recent-abandoners",
+        sent,
+        totalLogged,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/pricing/rules", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      return res.json({
+        lowStock: { threshold: 5, markupPercent: 10 },
+        criticalStock: { threshold: 2, markupPercent: 20 },
+        overstockFeatured: { threshold: 40, markdownPercent: 5 },
+      });
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
       if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });

@@ -107,6 +107,7 @@ export const productReviews = pgTable("product_reviews", {
   rating: numeric("rating", { precision: 2, scale: 1 }).notNull(),
   comment: text("comment").notNull(),
   photoUrl: text("photo_url"),
+  videoUrl: text("video_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -114,6 +115,26 @@ export const wishlists = pgTable("wishlists", {
   id: serial("id").primaryKey(),
   userEmail: text("user_email").notNull(),
   productId: integer("product_id").notNull().references(() => products.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const productAlerts = pgTable("product_alerts", {
+  id: serial("id").primaryKey(),
+  userEmail: text("user_email").notNull(),
+  productId: integer("product_id").notNull().references(() => products.id),
+  targetPrice: numeric("target_price", { precision: 10, scale: 2 }),
+  baselinePrice: numeric("baseline_price", { precision: 10, scale: 2 }).notNull(),
+  baselineStock: integer("baseline_stock").notNull().default(0),
+  notifyOnPriceDrop: boolean("notify_on_price_drop").notNull().default(true),
+  notifyOnRestock: boolean("notify_on_restock").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const referralClaims = pgTable("referral_claims", {
+  id: serial("id").primaryKey(),
+  referrerEmail: text("referrer_email").notNull(),
+  refereeEmail: text("referee_email").notNull(),
+  code: text("code").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -241,9 +262,18 @@ export const coupons = pgTable("coupons", {
 export const orderMeta = pgTable("order_meta", {
   orderId: integer("order_id").primaryKey().references(() => orders.id),
   couponCode: text("coupon_code"),
+  giftCardCode: text("gift_card_code"),
+  giftCardDiscount: numeric("gift_card_discount", { precision: 10, scale: 2 }),
   deliverySlot: text("delivery_slot"),
   paymentMethod: text("payment_method"),
   paymentStatus: text("payment_status"),
+});
+
+export const giftCards = pgTable("gift_cards", {
+  code: text("code").primaryKey(),
+  balance: numeric("balance", { precision: 10, scale: 2 }).notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const notificationLogs = pgTable("notification_logs", {
@@ -306,6 +336,8 @@ export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: t
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProductReviewSchema = createInsertSchema(productReviews).omit({ id: true, createdAt: true });
 export const insertWishlistSchema = createInsertSchema(wishlists).omit({ id: true, createdAt: true });
+export const insertProductAlertSchema = createInsertSchema(productAlerts).omit({ id: true, createdAt: true });
+export const insertReferralClaimSchema = createInsertSchema(referralClaims).omit({ id: true, createdAt: true });
 export const insertAccountPreferencesSchema = createInsertSchema(accountPreferences).omit({ updatedAt: true });
 export const insertWishlistShareSchema = createInsertSchema(wishlistShares).omit({ id: true, createdAt: true });
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true, createdAt: true });
@@ -322,6 +354,7 @@ export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: tru
 export const insertRiskAssessmentSchema = createInsertSchema(riskAssessments).omit({ id: true, createdAt: true });
 export const insertCurrencyRateSchema = createInsertSchema(currencyRates).omit({ updatedAt: true });
 export const insertCouponSchema = createInsertSchema(coupons).omit({ createdAt: true });
+export const insertGiftCardSchema = createInsertSchema(giftCards).omit({ createdAt: true });
 export const insertOrderMetaSchema = createInsertSchema(orderMeta);
 export const insertNotificationLogSchema = createInsertSchema(notificationLogs).omit({ id: true, createdAt: true });
 
@@ -348,6 +381,10 @@ export type ProductReview = typeof productReviews.$inferSelect;
 export type InsertProductReview = z.infer<typeof insertProductReviewSchema>;
 export type Wishlist = typeof wishlists.$inferSelect;
 export type InsertWishlist = z.infer<typeof insertWishlistSchema>;
+export type ProductAlert = typeof productAlerts.$inferSelect;
+export type InsertProductAlert = z.infer<typeof insertProductAlertSchema>;
+export type ReferralClaim = typeof referralClaims.$inferSelect;
+export type InsertReferralClaim = z.infer<typeof insertReferralClaimSchema>;
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type InsertAccountPreferences = z.infer<typeof insertAccountPreferencesSchema>;
 export type WishlistShare = typeof wishlistShares.$inferSelect;
@@ -380,6 +417,8 @@ export type CurrencyRate = typeof currencyRates.$inferSelect;
 export type InsertCurrencyRate = z.infer<typeof insertCurrencyRateSchema>;
 export type Coupon = typeof coupons.$inferSelect;
 export type InsertCoupon = z.infer<typeof insertCouponSchema>;
+export type GiftCard = typeof giftCards.$inferSelect;
+export type InsertGiftCard = z.infer<typeof insertGiftCardSchema>;
 export type OrderMeta = typeof orderMeta.$inferSelect;
 export type InsertOrderMeta = z.infer<typeof insertOrderMetaSchema>;
 export type NotificationLog = typeof notificationLogs.$inferSelect;

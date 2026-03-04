@@ -6,6 +6,7 @@ import { useCart } from "@/hooks/use-cart";
 import type { Product } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { normalizeProductImageUrl } from "@/lib/images";
 
 interface ProductCardProps {
   product: Product;
@@ -15,7 +16,8 @@ export function ProductCard({ product }: ProductCardProps) {
   const { addItem } = useCart();
   const { toast } = useToast();
   const isOutOfStock = product.stockQuantity <= 0;
-  const [imageSrc, setImageSrc] = useState(product.imageUrl || "/logo-house.png");
+  const primaryImage = normalizeProductImageUrl(product.imageUrl, product.id);
+  const [imageSrc, setImageSrc] = useState(primaryImage);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent navigating if wrapped in Link

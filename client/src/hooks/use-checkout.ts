@@ -72,5 +72,6 @@ export function useOrderTracking(orderId: number) {
       return res.json();
     },
     enabled: Number.isFinite(orderId) && orderId > 0,
+    refetchInterval: 15000,
   });
 }

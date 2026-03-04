@@ -70,6 +70,24 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private applyDynamicPricing(product: Product): Product {
+    const basePrice = Number(product.price);
+    let nextPrice = basePrice;
+
+    if (product.stockQuantity <= 2) {
+      nextPrice = basePrice * 1.2;
+    } else if (product.stockQuantity <= 5) {
+      nextPrice = basePrice * 1.1;
+    } else if (product.isFeatured && product.stockQuantity >= 40) {
+      nextPrice = basePrice * 0.95;
+    }
+
+    return {
+      ...product,
+      price: roundCurrency(nextPrice).toFixed(2),
+    };
+  }
+
   async getCategories(): Promise<Category[]> {
     return await db.select().from(categories);
   }
@@ -139,12 +157,13 @@ export class DatabaseStorage implements IStorage {
         break;
     }
 
-    return await query;
+    const rows = await query;
+    return rows.map((product) => this.applyDynamicPricing(product));
   }
 
   async getProduct(id: number): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.id, id));
-    return product;
+    return product ? this.applyDynamicPricing(product) : undefined;
   }
 
   async subscribe(subscriber: InsertSubscriber): Promise<Subscriber> {
@@ -176,7 +195,7 @@ export class DatabaseStorage implements IStorage {
       if (product.stockQuantity < line.quantity) {
         throw new Error(`${product.name} has only ${product.stockQuantity} left in stock`);
       }
-      subtotal += Number(product.price) * line.quantity;
+      subtotal += Number(this.applyDynamicPricing(product).price) * line.quantity;
     }
 
     const roundedSubtotal = roundCurrency(subtotal);
@@ -235,13 +254,14 @@ export class DatabaseStorage implements IStorage {
           throw new Error(`${product.name} is out of stock`);
         }
 
+        const pricedProduct = this.applyDynamicPricing(product);
         itemRows.push({
           orderId: order.id,
           productId: product.id,
           productName: product.name,
-          unitPrice: Number(product.price).toFixed(2),
+          unitPrice: Number(pricedProduct.price).toFixed(2),
           quantity: line.quantity,
-          lineTotal: (Number(product.price) * line.quantity).toFixed(2),
+          lineTotal: (Number(pricedProduct.price) * line.quantity).toFixed(2),
         });
       }
 

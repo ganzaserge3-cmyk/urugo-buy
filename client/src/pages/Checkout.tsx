@@ -22,14 +22,24 @@ export default function Checkout() {
     city: "",
     country: "USA",
     couponCode: "",
+    giftCardCode: "",
     deliverySlot: "",
     fulfillmentType: "delivery" as "delivery" | "pickup",
     paymentMethod: "card" as "card" | "paypal" | "momo" | "cod",
   });
   const [deliverySlots, setDeliverySlots] = useState<string[]>([]);
+  const [deliverySlotOptions, setDeliverySlotOptions] = useState<Array<{
+    id: string;
+    label: string;
+    remaining: number;
+    available: boolean;
+    isPickup?: boolean;
+  }>>([]);
   const [couponMessage, setCouponMessage] = useState<string>("");
   const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
   const [riskMessage, setRiskMessage] = useState("");
+  const [regionalTax, setRegionalTax] = useState<number | null>(null);
+  const [regionalTaxRate, setRegionalTaxRate] = useState<number | null>(null);
   const [currency, setCurrency] = useState("USD");
   const [rates, setRates] = useState<Array<{ code: string; rateFromUsd: string; symbol: string }>>([]);
   const [locale, setLocale] = useState("en");
@@ -37,16 +47,37 @@ export default function Checkout() {
   const quoteItems = items.map((item) => ({ productId: item.id, quantity: item.quantity }));
   const hasItems = quoteItems.length > 0;
   const { data: quote, isLoading: isQuoteLoading } = useCheckoutQuote(
-    { items: quoteItems, couponCode: form.couponCode || undefined },
+    {
+      items: quoteItems,
+      couponCode: form.couponCode || undefined,
+      giftCardCode: form.giftCardCode || undefined,
+      country: form.country || undefined,
+    },
     hasItems,
   );
+
+  const labelsByLocale: Record<string, { checkout: string; placeOrder: string; shippingAddress: string }> = {
+    en: { checkout: "Checkout", placeOrder: "Place Order", shippingAddress: "Shipping address" },
+    fr: { checkout: "Paiement", placeOrder: "Passer la commande", shippingAddress: "Adresse de livraison" },
+    ar: { checkout: "الدفع", placeOrder: "تأكيد الطلب", shippingAddress: "عنوان الشحن" },
+  };
+  const labels = labelsByLocale[locale] || labelsByLocale.en;
 
   useEffect(() => {
     fetch("/api/delivery-slots")
       .then((r) => r.json())
       .then((slots) => {
+        if (Array.isArray(slots) && slots.length > 0 && typeof slots[0] === "object") {
+          const typed = slots as Array<{ id: string; label: string; remaining: number; available: boolean; isPickup?: boolean }>;
+          setDeliverySlotOptions(typed);
+          setDeliverySlots(typed.map((slot) => slot.label));
+          const firstAvailable = typed.find((slot) => slot.available)?.label || typed[0].label;
+          setForm((prev) => ({ ...prev, deliverySlot: prev.deliverySlot || firstAvailable }));
+          return;
+        }
         setDeliverySlots(Array.isArray(slots) ? slots : []);
-        if (Array.isArray(slots) && slots.length > 0) {
+        setDeliverySlotOptions([]);
+        if (Array.isArray(slots) && slots.length > 0 && typeof slots[0] === "string") {
           setForm((prev) => ({ ...prev, deliverySlot: prev.deliverySlot || slots[0] }));
         }
       })
@@ -91,6 +122,22 @@ export default function Checkout() {
     }
   }, [form.couponCode, quote]);
 
+  useEffect(() => {
+    const subtotal = quote?.subtotal ?? totalPrice();
+    if (!subtotal || !form.country) return;
+    fetch(`/api/tax/estimate?country=${encodeURIComponent(form.country)}&subtotal=${subtotal}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (!payload) return;
+        setRegionalTax(Number(payload.tax || 0));
+        setRegionalTaxRate(Number(payload.rate || 0));
+      })
+      .catch(() => {
+        setRegionalTax(null);
+        setRegionalTaxRate(null);
+      });
+  }, [form.country, quote?.subtotal, totalPrice]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasItems) {
@@ -118,6 +165,7 @@ export default function Checkout() {
       const order = await createOrder.mutateAsync({
         ...form,
         couponCode: form.couponCode || undefined,
+        giftCardCode: form.giftCardCode || undefined,
         deliverySlot: form.deliverySlot || undefined,
         items: quoteItems,
       });
@@ -165,7 +213,7 @@ export default function Checkout() {
 
         <div className="grid lg:grid-cols-3 gap-8">
         <form onSubmit={handleSubmit} className="lg:col-span-2 border border-border rounded-2xl p-6 md:p-8 space-y-5 bg-card">
-            <h1 className="font-display text-3xl font-bold">Checkout</h1>
+            <h1 className="font-display text-3xl font-bold">{labels.checkout}</h1>
             <p className="text-muted-foreground">Enter shipping details to place your order.</p>
             <div className="grid grid-cols-2 gap-2">
               <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={locale} onChange={(e) => setLocale(e.target.value)}>
@@ -195,7 +243,7 @@ export default function Checkout() {
               required
             />
             <Input
-              placeholder="Shipping address"
+              placeholder={labels.shippingAddress}
               value={form.shippingAddress}
               onChange={(e) => setForm((prev) => ({ ...prev, shippingAddress: e.target.value }))}
               required
@@ -233,20 +281,38 @@ export default function Checkout() {
               value={form.couponCode}
               onChange={(e) => setForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
             />
+            <Input
+              placeholder="Gift card code (optional)"
+              value={form.giftCardCode}
+              onChange={(e) => setForm((prev) => ({ ...prev, giftCardCode: e.target.value.toUpperCase() }))}
+            />
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={form.deliverySlot}
               onChange={(e) => setForm((prev) => ({ ...prev, deliverySlot: e.target.value }))}
             >
-              {deliverySlots.map((slot) => (
-                <option key={slot} value={slot}>{slot}</option>
-              ))}
+              {deliverySlots.map((slot) => {
+                const meta = deliverySlotOptions.find((row) => row.label === slot);
+                return (
+                  <option key={slot} value={slot} disabled={meta ? !meta.available : false}>
+                    {slot}{meta ? ` (${meta.remaining} left)` : ""}
+                  </option>
+                );
+              })}
             </select>
+            {deliverySlotOptions.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Slots update live by remaining capacity.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Button
                 type="button"
                 variant={form.fulfillmentType === "delivery" ? "default" : "outline"}
-                onClick={() => setForm((prev) => ({ ...prev, fulfillmentType: "delivery" }))}
+                onClick={() => {
+                  const nextSlot = deliverySlotOptions.find((slot) => !slot.isPickup && slot.available)?.label || form.deliverySlot;
+                  setForm((prev) => ({ ...prev, fulfillmentType: "delivery", deliverySlot: nextSlot }));
+                }}
                 className="rounded-full"
               >
                 Home Delivery
@@ -302,7 +368,7 @@ export default function Checkout() {
 
             <Button type="submit" size="lg" className="w-full rounded-full h-12" disabled={createOrder.isPending || isQuoteLoading}>
               {createOrder.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
-              {createOrder.isPending ? "Placing Order..." : "Place Order"}
+              {createOrder.isPending ? "Placing Order..." : labels.placeOrder}
             </Button>
           </form>
 
@@ -330,12 +396,22 @@ export default function Checkout() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Tax</span>
-                <span>${quote?.tax.toFixed(2) ?? "0.00"}</span>
+                <span>${(regionalTax ?? quote?.tax ?? 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Discount</span>
                 <span>-${quote?.discount?.toFixed(2) ?? "0.00"}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Gift Card</span>
+                <span>-${quote?.giftCardDiscount?.toFixed(2) ?? "0.00"}</span>
+              </div>
+              {regionalTaxRate !== null && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax Rate</span>
+                  <span>{(regionalTaxRate * 100).toFixed(1)}%</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold text-base pt-3 border-t border-border">
                 <span>Total</span>
                 <span>

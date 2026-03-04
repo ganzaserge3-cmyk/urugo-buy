@@ -6,7 +6,9 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   type AccountPreferences,
   useAccountOrders,
+  useAccountAlertsFeed,
   useAccountPreferences,
+  useRedeemReferralCode,
   useAccountSummary,
   useSaveAccountPreferences,
 } from "@/hooks/use-account";
@@ -28,8 +30,10 @@ export default function Account() {
   const { toast } = useToast();
   const { data: summary, refetch: refetchSummary } = useAccountSummary();
   const { data: orders = [], refetch: refetchOrders } = useAccountOrders();
+  const { data: alertsFeed = [] } = useAccountAlertsFeed();
   const { data: preferences } = useAccountPreferences();
   const savePreferences = useSaveAccountPreferences();
+  const redeemReferral = useRedeemReferralCode();
   const createWishlistShare = useCreateWishlistShare();
 
   const [localPrefs, setLocalPrefs] = useState<AccountPreferences>(defaultPreferences);
@@ -42,9 +46,10 @@ export default function Account() {
     { role: "bot", text: "Hi. How can I help with your order today?" },
   ]);
   const [wishlistShareLink, setWishlistShareLink] = useState("");
+  const [referralInput, setReferralInput] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorVerified, setTwoFactorVerified] = useState(false);
-  const [subscriptions, setSubscriptions] = useState<Array<{ id: number; frequency: string; status: string }>>([]);
+  const [subscriptions, setSubscriptions] = useState<Array<{ id: number; frequency: string; status: string; nextRunAt?: string }>>([]);
 
   useEffect(() => {
     if (preferences) setLocalPrefs(preferences);
@@ -239,6 +244,35 @@ export default function Account() {
     if (res.ok) toast({ title: "Push notifications enabled" });
   };
 
+  const skipSubscriptionNext = async (id: number) => {
+    const res = await authFetch(`/api/subscriptions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skipNext: true }),
+    });
+    if (res.ok) {
+      const rows = await authFetch("/api/subscriptions").then((r) => (r.ok ? r.json() : []));
+      setSubscriptions(Array.isArray(rows) ? rows : []);
+      toast({ title: "Next subscription run skipped" });
+    }
+  };
+
+  const handleRedeemReferral = async () => {
+    if (!referralInput.trim()) return;
+    try {
+      const payload = await redeemReferral.mutateAsync(referralInput.trim());
+      toast({ title: "Referral redeemed", description: `+${payload.awardedPoints} points awarded.` });
+      setReferralInput("");
+      await refetchSummary();
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Referral failed",
+        description: error instanceof Error ? error.message : "Please try again",
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen pt-24 pb-20 px-4 bg-background">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -263,6 +297,46 @@ export default function Account() {
           <div className="border border-border rounded-xl p-4 bg-card">
             <p className="text-sm text-muted-foreground">Referral Code</p>
             <p className="text-xl font-bold">{summary?.referralCode ?? "N/A"}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {summary?.referralsCount ?? 0} redeemed
+            </p>
+          </div>
+        </section>
+
+        <section className="grid lg:grid-cols-2 gap-6">
+          <div className="border border-border rounded-2xl p-5 bg-card space-y-3">
+            <h2 className="font-display text-2xl font-semibold">Referral Rewards</h2>
+            <p className="text-sm text-muted-foreground">
+              Redeem a friend's code to earn bonus points once per account.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter referral code"
+                value={referralInput}
+                onChange={(e) => setReferralInput(e.target.value)}
+              />
+              <Button onClick={handleRedeemReferral} disabled={redeemReferral.isPending}>
+                Redeem
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Bonus points earned: {summary?.referralBonusPoints ?? 0}
+            </p>
+          </div>
+          <div className="border border-border rounded-2xl p-5 bg-card">
+            <h2 className="font-display text-2xl font-semibold mb-3">My Alert Feed</h2>
+            {alertsFeed.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No price-drop or restock alerts yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {alertsFeed.map((item, idx) => (
+                  <div key={`${item.productId}-${item.type}-${idx}`} className="border border-border rounded-lg p-2 text-sm">
+                    <p className="font-medium capitalize">{item.type.replace("-", " ")}</p>
+                    <p className="text-muted-foreground">{item.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -367,8 +441,9 @@ export default function Account() {
             ) : (
               subscriptions.map((sub) => (
                 <div key={sub.id} className="border border-border rounded-lg p-3 flex items-center justify-between text-sm">
-                  <span>#{sub.id} - {sub.frequency} - {sub.status}</span>
+                  <span>#{sub.id} - {sub.frequency} - {sub.status}{sub.nextRunAt ? ` - next ${new Date(sub.nextRunAt).toLocaleDateString()}` : ""}</span>
                   <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => skipSubscriptionNext(sub.id)}>Skip Next</Button>
                     <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "paused")}>Pause</Button>
                     <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "active")}>Resume</Button>
                     <Button size="sm" variant="destructive" onClick={() => updateSubscription(sub.id, "cancelled")}>Cancel</Button>

@@ -80,6 +80,8 @@ export const api = {
       path: '/api/checkout/quote' as const,
       input: z.object({
         couponCode: z.string().optional(),
+        giftCardCode: z.string().optional(),
+        country: z.string().optional(),
         items: z.array(
           z.object({
             productId: z.number().int().positive(),
@@ -93,7 +95,10 @@ export const api = {
           shippingFee: z.number(),
           tax: z.number(),
           discount: z.number().default(0),
+          giftCardDiscount: z.number().default(0),
           couponCode: z.string().optional(),
+          giftCardCode: z.string().optional(),
+          taxRate: z.number().optional(),
           total: z.number(),
         }),
         400: errorSchemas.validation,
@@ -111,6 +116,7 @@ export const api = {
         city: z.string().min(2, "City is required"),
         country: z.string().min(2).default("USA"),
         couponCode: z.string().optional(),
+        giftCardCode: z.string().optional(),
         deliverySlot: z.string().optional(),
         paymentMethod: z.enum(["card", "paypal", "momo", "cod"]).optional(),
         items: z.array(
@@ -149,6 +155,8 @@ export const api = {
             total: z.string(),
             status: z.string(),
             couponCode: z.string().optional(),
+            giftCardCode: z.string().optional(),
+            giftCardDiscount: z.string().optional(),
             deliverySlot: z.string().optional(),
             paymentMethod: z.string().optional(),
             paymentStatus: z.string().optional(),

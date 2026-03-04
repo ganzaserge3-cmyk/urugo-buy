@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { authFetch } from "@/lib/auth";
+import { normalizeProductImageUrl } from "@/lib/images";
 
 type AdminProduct = {
   id: number;
@@ -52,6 +53,12 @@ type Promotion = {
   active: boolean;
 };
 
+type GiftCard = {
+  code: string;
+  balance: string;
+  active: boolean;
+};
+
 export default function Admin() {
   const { user, token } = useAuth();
   const [products, setProducts] = useState<AdminProduct[]>([]);
@@ -62,6 +69,9 @@ export default function Admin() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [forecastRows, setForecastRows] = useState<Array<{ productId: number; productName: string; stockQuantity: number; avgDailySales: number; forecastDaysUntilOut: number | null }>>([]);
   const [returnRows, setReturnRows] = useState<Array<{ id: number; orderId: number; status: string }>>([]);
+  const [abandonedRows, setAbandonedRows] = useState<Array<{ email?: string; itemCount: number; createdAt: string }>>([]);
+  const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
+  const [pricingRules, setPricingRules] = useState<Record<string, { threshold: number; markupPercent?: number; markdownPercent?: number }> | null>(null);
   const [productForm, setProductForm] = useState({
     name: "",
     description: "",
@@ -91,6 +101,7 @@ export default function Admin() {
     dateFrom: "",
     dateTo: "",
   });
+  const [giftCardForm, setGiftCardForm] = useState({ code: "", balance: "" });
 
   const loadAll = async () => {
     const orderParams = new URLSearchParams();
@@ -102,7 +113,7 @@ export default function Admin() {
     const productParams = new URLSearchParams();
     if (productSearch) productParams.set("search", productSearch);
 
-    const [p, o, a, adv, v, promo, forecast, returns] = await Promise.all([
+    const [p, o, a, adv, v, promo, forecast, returns, abandoned, gc, pricing] = await Promise.all([
       authFetch(`/api/admin/products${productParams.toString() ? `?${productParams.toString()}` : ""}`),
       authFetch(`/api/admin/orders${orderParams.toString() ? `?${orderParams.toString()}` : ""}`),
       authFetch("/api/admin/analytics"),
@@ -111,6 +122,9 @@ export default function Admin() {
       authFetch("/api/admin/promotions"),
       authFetch("/api/admin/inventory/forecast"),
       authFetch("/api/admin/returns"),
+      authFetch("/api/admin/abandoned-carts"),
+      authFetch("/api/admin/gift-cards"),
+      authFetch("/api/admin/pricing/rules"),
     ]);
     if (p.ok) setProducts(await p.json());
     if (o.ok) setOrders(await o.json());
@@ -120,6 +134,9 @@ export default function Admin() {
     if (promo.ok) setPromotions(await promo.json());
     if (forecast.ok) setForecastRows(await forecast.json());
     if (returns.ok) setReturnRows(await returns.json());
+    if (abandoned.ok) setAbandonedRows(await abandoned.json());
+    if (gc.ok) setGiftCards(await gc.json());
+    if (pricing.ok) setPricingRules(await pricing.json());
   };
 
   useEffect(() => {
@@ -155,6 +172,13 @@ export default function Admin() {
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    const imageUrl = normalizeProductImageUrl(productForm.imageUrl);
+    const imageGallery = productForm.imageGallery
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((url, index) => normalizeProductImageUrl(url, index + 1));
+
     const res = await authFetch("/api/admin/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -162,11 +186,8 @@ export default function Admin() {
         name: productForm.name,
         description: productForm.description,
         price: Number(productForm.price),
-        imageUrl: productForm.imageUrl,
-        imageGallery: productForm.imageGallery
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        imageUrl,
+        imageGallery,
         categoryId: Number(productForm.categoryId),
         vendorId: productForm.vendorId ? Number(productForm.vendorId) : undefined,
         stockQuantity: Number(productForm.stockQuantity),
@@ -241,6 +262,32 @@ export default function Admin() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threshold: 5, quantity: 20 }),
+    });
+    if (res.ok) await loadAll();
+  };
+
+  const handleCreateGiftCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await authFetch("/api/admin/gift-cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: giftCardForm.code,
+        balance: Number(giftCardForm.balance),
+        active: true,
+      }),
+    });
+    if (res.ok) {
+      setGiftCardForm({ code: "", balance: "" });
+      await loadAll();
+    }
+  };
+
+  const triggerRecoveryJourney = async () => {
+    const res = await authFetch("/api/admin/abandoned-carts/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: "email" }),
     });
     if (res.ok) await loadAll();
   };
@@ -339,6 +386,64 @@ export default function Admin() {
             </div>
           </div>
         </section>
+
+        <section className="grid lg:grid-cols-2 gap-6">
+          <form onSubmit={handleCreateGiftCard} className="border border-border rounded-2xl p-5 bg-card space-y-3">
+            <h2 className="font-display text-2xl font-semibold">Gift Cards</h2>
+            <Input
+              placeholder="Code (e.g. GIFT50)"
+              value={giftCardForm.code}
+              onChange={(e) => setGiftCardForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+              required
+            />
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="Balance"
+              value={giftCardForm.balance}
+              onChange={(e) => setGiftCardForm((prev) => ({ ...prev, balance: e.target.value }))}
+              required
+            />
+            <Button type="submit" className="rounded-full">Save Gift Card</Button>
+            <div className="space-y-2 text-sm">
+              {giftCards.slice(0, 8).map((card) => (
+                <div key={card.code} className="border border-border rounded-lg p-2 flex justify-between">
+                  <span>{card.code}</span>
+                  <span>${Number(card.balance).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </form>
+
+          <div className="border border-border rounded-2xl p-5 bg-card space-y-3">
+            <h2 className="font-display text-2xl font-semibold">Abandoned Cart Recovery</h2>
+            <Button variant="outline" onClick={triggerRecoveryJourney}>Run Recovery Journey</Button>
+            <div className="space-y-2 text-sm">
+              {abandonedRows.slice(0, 8).map((row, index) => (
+                <div key={`${row.createdAt}-${index}`} className="border border-border rounded-lg p-2">
+                  <p>{row.email || "Guest"} abandoned {row.itemCount} item(s)</p>
+                  <p className="text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {pricingRules && (
+          <section className="border border-border rounded-2xl p-5 bg-card">
+            <h2 className="font-display text-2xl font-semibold mb-3">Dynamic Pricing Rules</h2>
+            <div className="space-y-2 text-sm">
+              {Object.entries(pricingRules).map(([name, rule]) => (
+                <div key={name} className="border border-border rounded-lg p-2 flex justify-between">
+                  <span>{name}</span>
+                  <span>
+                    threshold {rule.threshold}, {rule.markupPercent ? `+${rule.markupPercent}%` : `-${rule.markdownPercent || 0}%`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="grid lg:grid-cols-2 gap-6">
           <form onSubmit={createVendor} className="border border-border rounded-2xl p-5 bg-card space-y-3">

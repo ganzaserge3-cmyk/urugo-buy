@@ -15,7 +15,18 @@ export function useProducts(params?: UseProductsParams) {
   return useQuery({
     queryKey: [api.products.list.path, params],
     queryFn: async () => {
-      const url = buildUrl(api.products.list.path, params as Record<string, string | number | boolean>);
+      const hasSearch = Boolean(params?.search && params.search.trim().length > 0);
+      const url = hasSearch
+        ? buildUrl("/api/search/advanced", {
+          q: params?.search || "",
+          categoryId: params?.categoryId as number,
+          featured: params?.featured as boolean,
+          inStock: params?.inStock as boolean,
+          minPrice: params?.minPrice as number,
+          maxPrice: params?.maxPrice as number,
+          sort: params?.sort as string,
+        } as Record<string, string | number | boolean>)
+        : buildUrl(api.products.list.path, params as Record<string, string | number | boolean>);
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch products");
       const data = await res.json();
@@ -60,6 +71,24 @@ export function useCompareProducts(ids: number[]) {
       return res.json();
     },
     enabled: ids.length >= 2,
+  });
+}
+
+export function useBundleSuggestions(productId: number) {
+  return useQuery({
+    queryKey: ["bundles", productId],
+    queryFn: async () => {
+      const res = await fetch(`/api/bundles/${productId}`);
+      if (!res.ok) throw new Error("Failed to load bundle suggestions");
+      return res.json() as Promise<Array<{
+        id: number;
+        name: string;
+        price: string;
+        imageUrl: string;
+        pairCount: number;
+      }>>;
+    },
+    enabled: Number.isFinite(productId) && productId > 0,
   });
 }
 

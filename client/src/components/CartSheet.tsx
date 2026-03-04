@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCart } from "@/hooks/use-cart";
 import { Separator } from "@/components/ui/separator";
+import { normalizeProductImageUrl } from "@/lib/images";
 
 export function CartSheet() {
   const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, clearCart } = useCart();
@@ -47,8 +48,11 @@ export function CartSheet() {
                 <div key={item.id} className="flex gap-4">
                   <div className="w-20 h-24 rounded-xl overflow-hidden bg-muted flex-shrink-0">
                     <img 
-                      src={item.imageUrl} 
+                      src={normalizeProductImageUrl(item.imageUrl, item.id)} 
                       alt={item.name} 
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = "/logo-house.png";
+                      }}
                       className="w-full h-full object-cover"
                     />
                   </div>

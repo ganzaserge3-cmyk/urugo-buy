@@ -4,21 +4,24 @@ import { Star, ShoppingBag, ArrowLeft, Check, ShieldCheck, Package, Heart, Chevr
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useCompareProducts, useProduct, useRecommendations } from "@/hooks/use-products";
+import { useBundleSuggestions, useCompareProducts, useProduct, useRecommendations } from "@/hooks/use-products";
 import { useCart } from "@/hooks/use-cart";
 import { useToast } from "@/hooks/use-toast";
 import { useWishlist, useToggleWishlist } from "@/hooks/use-wishlist";
 import { useReviews, useCreateReview } from "@/hooks/use-reviews";
 import { useAuth } from "@/hooks/use-auth";
+import { useWatchProductAlert } from "@/hooks/use-account";
 import { ProductCard } from "@/components/ProductCard";
 import { useSeo } from "@/hooks/use-seo";
 import { authFetch } from "@/lib/auth";
+import { buildProductImageGallery, normalizeProductImageUrl } from "@/lib/images";
 
 export default function ProductDetail() {
   const params = useParams();
   const id = Number(params.id);
   const { data: product, isLoading } = useProduct(id);
   const { data: recommended = [] } = useRecommendations(id);
+  const { data: bundles = [] } = useBundleSuggestions(id);
   const { addItem } = useCart();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -27,17 +30,26 @@ export default function ProductDetail() {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewPhotoUrl, setReviewPhotoUrl] = useState("");
+  const [reviewVideoUrl, setReviewVideoUrl] = useState("");
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [selectedSize, setSelectedSize] = useState("Standard");
   const [selectedPack, setSelectedPack] = useState("Single");
   const [helpfulVotes, setHelpfulVotes] = useState<Record<number, number>>({});
-  const [questions, setQuestions] = useState<Array<{ id: number; question: string; answer?: string | null }>>([]);
+  const [alertTargetPrice, setAlertTargetPrice] = useState("");
+  const [questions, setQuestions] = useState<Array<{
+    id: number;
+    question: string;
+    answer?: string | null;
+    answeredBy?: string | null;
+    answeredAt?: string | null;
+  }>>([]);
   const [questionText, setQuestionText] = useState("");
   const [answerDrafts, setAnswerDrafts] = useState<Record<number, string>>({});
   const { data: wishlist = [] } = useWishlist();
   const toggleWishlist = useToggleWishlist();
   const { data: reviews = [] } = useReviews(id);
   const createReview = useCreateReview(id);
+  const watchProductAlert = useWatchProductAlert();
   const { data: compared = [] } = useCompareProducts(compareIds);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -48,19 +60,11 @@ export default function ProductDetail() {
 
   const productImages = useMemo(() => {
     if (!product) return ["/logo-house.png"];
-    if (Array.isArray((product as any).imageGallery) && (product as any).imageGallery.length > 0) {
-      return (product as any).imageGallery as string[];
-    }
-    const baseImage = product.imageUrl || "/logo-house.png";
-    if (!product.imageUrl || product.imageUrl.startsWith("/")) {
-      return [baseImage];
-    }
-    const separator = product.imageUrl.includes("?") ? "&" : "?";
-    return [
-      baseImage,
-      `${product.imageUrl}${separator}gallery=2`,
-      `${product.imageUrl}${separator}gallery=3`,
-    ];
+    return buildProductImageGallery({
+      imageUrl: product.imageUrl,
+      imageGallery: Array.isArray((product as any).imageGallery) ? (product as any).imageGallery as string[] : [],
+      productId: product.id,
+    });
   }, [product]);
 
   useEffect(() => {
@@ -160,13 +164,43 @@ export default function ProductDetail() {
     }
   };
 
+  const handleWatchAlert = async () => {
+    if (!user) {
+      toast({ variant: "destructive", title: "Login required", description: "Please login to track product alerts." });
+      return;
+    }
+    try {
+      const parsed = alertTargetPrice.trim() ? Number(alertTargetPrice) : undefined;
+      await watchProductAlert.mutateAsync({
+        productId: product.id,
+        targetPrice: Number.isFinite(parsed) ? parsed : undefined,
+        notifyOnPriceDrop: true,
+        notifyOnRestock: true,
+      });
+      toast({ title: "Alert saved", description: "You will be notified on price drops or restock." });
+      setAlertTargetPrice("");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Alert failed",
+        description: error instanceof Error ? error.message : "Please try again",
+      });
+    }
+  };
+
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createReview.mutateAsync({ rating: reviewRating, comment: reviewComment, photoUrl: reviewPhotoUrl || undefined });
+      await createReview.mutateAsync({
+        rating: reviewRating,
+        comment: reviewComment,
+        photoUrl: reviewPhotoUrl || undefined,
+        videoUrl: reviewVideoUrl || undefined,
+      });
       setReviewComment("");
       setReviewRating(5);
       setReviewPhotoUrl("");
+      setReviewVideoUrl("");
       toast({ title: "Review submitted" });
     } catch (error) {
       toast({
@@ -255,7 +289,7 @@ export default function ProductDetail() {
               <img 
                 src={imageSrc}
                 alt={product.name} 
-                onError={() => setImageSrc("/logo-house.png")}
+                onError={() => setImageSrc(normalizeProductImageUrl(undefined, product.id))}
                 className="w-full h-full object-cover"
               />
               {hasMultipleImages && (
@@ -303,7 +337,10 @@ export default function ProductDetail() {
                     <img
                       src={image}
                       alt={`${product.name} view ${index + 1}`}
-                      onError={() => setImageSrc("/logo-house.png")}
+                      onError={(e) => {
+                        const fallback = normalizeProductImageUrl(undefined, product.id + index + 100);
+                        (e.currentTarget as HTMLImageElement).src = fallback;
+                      }}
                       className="w-full h-full object-cover"
                     />
                   </button>
@@ -398,6 +435,24 @@ export default function ProductDetail() {
             <Button onClick={toggleCompare} variant="outline" size="lg" className="w-full h-12 rounded-full mt-3">
               {inCompare ? "Remove from Compare" : "Add to Compare"}
             </Button>
+            <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="Target price (optional)"
+                value={alertTargetPrice}
+                onChange={(e) => setAlertTargetPrice(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                className="rounded-full"
+                onClick={handleWatchAlert}
+                disabled={watchProductAlert.isPending}
+              >
+                Track Alert
+              </Button>
+            </div>
             <Button
               variant="outline"
               size="lg"
@@ -440,22 +495,35 @@ export default function ProductDetail() {
               onChange={(e) => setReviewPhotoUrl(e.target.value)}
               disabled={!user}
             />
+            <Input
+              placeholder="Video URL (optional)"
+              value={reviewVideoUrl}
+              onChange={(e) => setReviewVideoUrl(e.target.value)}
+              disabled={!user}
+            />
             <Button type="submit" disabled={!user || createReview.isPending}>Submit</Button>
           </form>
           <div className="space-y-3">
             {reviews.length === 0 ? (
               <p className="text-muted-foreground">No reviews yet.</p>
             ) : (
-              reviews.map((review: { id: number; userEmail: string; rating: number; comment: string; photoUrl?: string | null }) => (
+              reviews.map((review: { id: number; userEmail: string; rating: number; comment: string; photoUrl?: string | null; videoUrl?: string | null; verifiedPurchase?: boolean }) => (
                 <div key={review.id} className="border border-border rounded-xl p-4">
                   <div className="flex items-center justify-between">
                     <p className="font-medium">{review.userEmail}</p>
-                    <span className="text-xs rounded-full bg-muted px-2 py-1">Verified purchase</span>
+                    {review.verifiedPurchase ? (
+                      <span className="text-xs rounded-full bg-muted px-2 py-1">Verified purchase</span>
+                    ) : (
+                      <span className="text-xs rounded-full bg-muted px-2 py-1">Unverified</span>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground">Rating: {review.rating}/5</p>
                   <p className="mt-2">{review.comment}</p>
                   {review.photoUrl && (
                     <img src={review.photoUrl} alt="Review upload" className="mt-3 h-24 w-24 rounded-md object-cover border border-border" />
+                  )}
+                  {review.videoUrl && (
+                    <video src={review.videoUrl} controls className="mt-3 h-32 w-56 rounded-md border border-border bg-black" />
                   )}
                   <Button variant="ghost" size="sm" className="mt-3" onClick={() => handleHelpfulVote(review.id)}>
                     Helpful ({helpfulVotes[review.id] || 0})
@@ -484,7 +552,12 @@ export default function ProductDetail() {
                 <div key={item.id} className="border border-border rounded-xl p-4">
                   <p className="font-medium">Q: {item.question}</p>
                   {item.answer ? (
-                    <p className="mt-2 text-muted-foreground">A: {item.answer}</p>
+                    <div className="mt-2 text-muted-foreground">
+                      <p>A: {item.answer}</p>
+                      <p className="text-xs mt-1">
+                        Answered {item.answeredBy ? `by ${item.answeredBy}` : ""}{item.answeredAt ? ` on ${new Date(item.answeredAt).toLocaleString()}` : ""}
+                      </p>
+                    </div>
                   ) : (
                     <p className="mt-2 text-muted-foreground">Awaiting answer</p>
                   )}
@@ -527,6 +600,21 @@ export default function ProductDetail() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+        )}
+        {bundles.length > 0 && (
+          <section className="mt-14 border-t border-border pt-10">
+            <h2 className="font-display text-3xl font-bold mb-6">Frequently Bought Together</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {bundles.map((item: any) => (
+                <div key={`bundle-${item.id}`} className="space-y-2">
+                  <ProductCard product={item} />
+                  <p className="text-xs text-muted-foreground">
+                    Bought together {item.pairCount} times
+                  </p>
+                </div>
+              ))}
             </div>
           </section>
         )}
