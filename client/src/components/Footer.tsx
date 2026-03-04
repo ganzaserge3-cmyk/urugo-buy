@@ -9,11 +9,17 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
           
           <div className="md:col-span-1">
-            <Link href="/" className="font-display font-bold text-2xl tracking-tighter mb-4 block">
-              AURA<span className="text-primary/50">.</span>
+            <Link href="/" className="flex items-center gap-4 font-display font-bold tracking-tighter mb-4">
+              <img src="/logo-house.png" alt="UrugoBuy logo" className="h-20 w-20 sm:h-16 sm:w-16 rounded-xl object-cover shadow-sm" />
+              <div className="leading-none">
+                <span className="brand-logo-text text-5xl sm:text-4xl">UrugoBuy<span className="text-primary/50">.</span></span>
+                <p className="text-[11px] sm:text-xs font-semibold tracking-wide text-muted-foreground mt-1">
+                  Fresh Fruits and Foods
+                </p>
+              </div>
             </Link>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
-              Premium quality products designed for modern living. Elevate your everyday with our carefully curated collection.
+              Fresh fruits and quality foods delivered with care. Shop healthy essentials for your everyday meals.
             </p>
           </div>
           
@@ -22,18 +28,20 @@ export function Footer() {
             <ul className="space-y-3">
               <li><Link href="/shop" className="text-muted-foreground hover:text-primary transition-colors text-sm">All Products</Link></li>
               <li><Link href="/shop?featured=true" className="text-muted-foreground hover:text-primary transition-colors text-sm">Featured</Link></li>
-              <li><Link href="/shop?categoryId=1" className="text-muted-foreground hover:text-primary transition-colors text-sm">Electronics</Link></li>
-              <li><Link href="/shop?categoryId=2" className="text-muted-foreground hover:text-primary transition-colors text-sm">Accessories</Link></li>
+              <li><Link href="/shop?categoryId=1" className="text-muted-foreground hover:text-primary transition-colors text-sm">Fruits</Link></li>
+              <li><Link href="/shop?categoryId=2" className="text-muted-foreground hover:text-primary transition-colors text-sm">Foods</Link></li>
             </ul>
           </div>
           
           <div>
             <h4 className="font-display font-semibold mb-6">Company</h4>
             <ul className="space-y-3">
-              <li><Link href="/" className="text-muted-foreground hover:text-primary transition-colors text-sm">About Us</Link></li>
-              <li><Link href="/" className="text-muted-foreground hover:text-primary transition-colors text-sm">Careers</Link></li>
-              <li><Link href="/" className="text-muted-foreground hover:text-primary transition-colors text-sm">Privacy Policy</Link></li>
-              <li><Link href="/" className="text-muted-foreground hover:text-primary transition-colors text-sm">Terms of Service</Link></li>
+              <li><Link href="/about-us" className="text-muted-foreground hover:text-primary transition-colors text-sm">About Us</Link></li>
+              <li><Link href="/careers" className="text-muted-foreground hover:text-primary transition-colors text-sm">Careers</Link></li>
+              <li><Link href="/privacy-policy" className="text-muted-foreground hover:text-primary transition-colors text-sm">Privacy Policy</Link></li>
+              <li><Link href="/terms-of-service" className="text-muted-foreground hover:text-primary transition-colors text-sm">Terms of Service</Link></li>
+              <li><Link href="/account" className="text-muted-foreground hover:text-primary transition-colors text-sm">Account Hub</Link></li>
+              <li><Link href="/blog" className="text-muted-foreground hover:text-primary transition-colors text-sm">Blog</Link></li>
             </ul>
           </div>
 
@@ -59,7 +67,7 @@ export function Footer() {
         </div>
         
         <div className="border-t border-border pt-8 flex flex-col md:flex-row items-center justify-between text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} AURA Store. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} UrugoBuy Store. All rights reserved.</p>
           <div className="flex space-x-6 mt-4 md:mt-0">
             <span>Designed with precision.</span>
           </div>
@@ -68,3 +76,4 @@ export function Footer() {
     </footer>
   );
 }
+

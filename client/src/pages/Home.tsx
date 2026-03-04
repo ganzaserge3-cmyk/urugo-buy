@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { ArrowRight, Star, Mail } from "lucide-react";
@@ -8,12 +8,28 @@ import { ProductCard } from "@/components/ProductCard";
 import { useCategories } from "@/hooks/use-categories";
 import { useProducts } from "@/hooks/use-products";
 import { useSubscribeNewsletter } from "@/hooks/use-newsletter";
+import { useSeo } from "@/hooks/use-seo";
 
 export default function Home() {
+  useSeo("UrugoBuy - Fresh Fruits and Foods", "Shop fresh fruits and quality food essentials with fast delivery and secure checkout.");
   const { data: categories, isLoading: isCategoriesLoading } = useCategories();
   const { data: featuredProducts, isLoading: isProductsLoading } = useProducts({ featured: true });
+  const { data: allProducts = [] } = useProducts();
   const subscribeMutation = useSubscribeNewsletter();
   const [email, setEmail] = useState("");
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
+
+  const recentlyViewedProducts = allProducts.filter((product) => recentlyViewedIds.includes(product.id)).slice(0, 4);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("recently-viewed-products");
+      const ids = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(ids)) setRecentlyViewedIds(ids.filter((v) => Number.isFinite(v)));
+    } catch {
+      setRecentlyViewedIds([]);
+    }
+  }, []);
 
   const handleSubscribe = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,25 +55,28 @@ export default function Home() {
           >
             <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm font-medium bg-muted text-muted-foreground mb-6 border border-border">
               <span className="flex w-2 h-2 rounded-full bg-primary mr-2"></span>
-              New Collection Available
+              Fresh Arrivals This Week
             </div>
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-display font-bold tracking-tight text-balance leading-[1.1] mb-6">
-              Premium Quality <br className="hidden sm:block" />
-              <span className="text-muted-foreground">Everyday Essentials</span>
+              Better Groceries <br className="hidden sm:block" />
+              <span className="text-muted-foreground">Delivered Fresh</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl text-balance leading-relaxed">
-              Discover our carefully curated selection of minimalist products designed to elevate your workspace and daily routine.
+              Shop handpicked fruits and essential foods with dependable quality, fair pricing, and delivery you can trust.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Button size="lg" className="rounded-full text-base h-14 px-8" asChild>
                 <Link href="/shop">
-                  Shop Now <ArrowRight className="w-4 h-4 ml-2" />
+                  Shop Fresh Produce <ArrowRight className="w-4 h-4 ml-2" />
                 </Link>
               </Button>
               <Button size="lg" variant="outline" className="rounded-full text-base h-14 px-8 border-border" asChild>
-                <Link href="/shop?featured=true">View Featured</Link>
+                <Link href="/shop?featured=true">View Best Sellers</Link>
               </Button>
             </div>
+            <p className="text-sm text-muted-foreground mt-5">
+              Fresh stock daily • Fast local delivery • Secure checkout
+            </p>
           </motion.div>
           
           <motion.div 
@@ -66,10 +85,12 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="relative lg:h-[600px] rounded-[2rem] overflow-hidden bg-muted border border-border/50 shadow-2xl"
           >
-            {/* landing page hero minimalist desk setup */}
+            {/* landing page hero fruits and food */}
             <img 
-              src="https://images.unsplash.com/photo-1499951360447-b19be8fe80f5?q=80&w=2070&auto=format&fit=crop"
-              alt="Premium minimalist desk setup"
+              src="https://images.unsplash.com/photo-1610832958506-aa56368176cf?q=80&w=2070&auto=format&fit=crop"
+              alt="Fresh fruits and food essentials arranged for daily grocery shopping"
+              loading="eager"
+              fetchPriority="high"
               className="object-cover w-full h-full"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
@@ -130,7 +151,7 @@ export default function Home() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-4">
             <div>
               <h2 className="font-display text-3xl md:text-4xl font-bold mb-3">Featured Products</h2>
-              <p className="text-muted-foreground max-w-xl">Our most popular items, loved by customers worldwide. Hand-picked for exceptional quality.</p>
+              <p className="text-muted-foreground max-w-xl">Customer favorites from our fruits and foods collection, selected for freshness and quality.</p>
             </div>
             <Button variant="outline" className="rounded-full rounded-r-full shrink-0" asChild>
               <Link href="/shop?featured=true">View All</Link>
@@ -153,15 +174,32 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Recently Viewed */}
+      {recentlyViewedProducts.length > 0 && (
+        <section className="py-20 bg-background border-t border-border/50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="mb-10">
+              <h2 className="font-display text-3xl font-bold mb-2">Recently Viewed</h2>
+              <p className="text-muted-foreground">Pick up where you left off.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
+              {recentlyViewedProducts.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Testimonials */}
       <section className="py-24 bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="font-display text-3xl font-bold mb-12 text-center">What Our Customers Say</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { name: "Alex Rivera", role: "Designer", text: "The build quality is unmatched. It completely transformed my workspace and daily workflow." },
-              { name: "Sarah Chen", role: "Developer", text: "Incredibly fast shipping and the packaging was beautiful. The product itself exceeded all expectations." },
-              { name: "Michael Vance", role: "Photographer", text: "Minimalist perfection. It does exactly what it needs to do without any unnecessary clutter." }
+              { name: "Alex Rivera", role: "Customer", text: "The fruit quality is always excellent and delivery is right on time every week." },
+              { name: "Sarah Chen", role: "Home Cook", text: "Fresh ingredients and fair prices. It makes meal prep so much easier for my family." },
+              { name: "Michael Vance", role: "Fitness Coach", text: "I order weekly for clean eating plans. Produce arrives fresh and packed with care." }
             ].map((review, idx) => (
               <motion.div 
                 key={idx}

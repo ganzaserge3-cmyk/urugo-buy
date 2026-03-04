@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useCart } from "@/hooks/use-cart";
 import { useTheme } from "@/hooks/use-theme";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/use-auth";
+import { useSearchSuggestions } from "@/hooks/use-products";
 
 export function Navbar() {
   const [location, setLocation] = useLocation();
@@ -12,9 +14,11 @@ export function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const { data: suggestions = [] } = useSearchSuggestions(searchQuery);
   
   const { totalItems, setIsOpen } = useCart();
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -37,6 +41,8 @@ export function Navbar() {
   const navLinks = [
     { name: "Home", path: "/" },
     { name: "Shop", path: "/shop" },
+    ...(user ? [{ name: "Account", path: "/account" }] : []),
+    ...(user?.role === "admin" ? [{ name: "Admin", path: "/admin" }] : []),
   ];
 
   return (
@@ -49,8 +55,14 @@ export function Navbar() {
         <div className="flex items-center justify-between">
           
           {/* Logo */}
-          <Link href="/" className="font-display font-bold text-2xl tracking-tighter">
-            AURA<span className="text-primary/50">.</span>
+          <Link href="/" className="flex items-center gap-3 sm:gap-4 font-display font-bold tracking-tighter">
+            <img src="/logo-house.png" alt="UrugoBuy logo" className="h-20 w-20 sm:h-16 sm:w-16 rounded-xl object-cover shadow-sm" />
+            <div className="leading-none">
+              <span className="brand-logo-text text-5xl sm:text-4xl">UrugoBuy<span className="text-primary/50">.</span></span>
+              <p className="text-[11px] sm:text-xs font-semibold tracking-wide text-muted-foreground mt-1">
+                Fresh Fruits and Foods
+              </p>
+            </div>
           </Link>
 
           {/* Desktop Nav */}
@@ -70,6 +82,23 @@ export function Navbar() {
 
           {/* Actions */}
           <div className="flex items-center space-x-2 sm:space-x-4">
+            {user ? (
+              <div className="hidden md:flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Hi, {user.name}</span>
+                <Button variant="outline" className="rounded-full" onClick={logout}>
+                  Logout
+                </Button>
+              </div>
+            ) : (
+              <div className="hidden md:flex items-center gap-2">
+                <Button variant="ghost" className="rounded-full" asChild>
+                  <Link href="/login">Login</Link>
+                </Button>
+                <Button className="rounded-full" asChild>
+                  <Link href="/signup">Sign Up</Link>
+                </Button>
+              </div>
+            )}
             
             {/* Desktop Search Toggle */}
             <div className="hidden sm:block relative">
@@ -91,6 +120,25 @@ export function Navbar() {
                   >
                     <Search className="w-4 h-4 text-muted-foreground" />
                   </Button>
+                  {suggestions.length > 0 && (
+                    <div className="absolute top-12 left-0 w-full bg-background border border-border rounded-xl shadow-lg overflow-hidden z-50">
+                      {suggestions.map((item: { id: number; name: string }) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setLocation(`/product/${item.id}`);
+                            setIsSearchOpen(false);
+                            setSearchQuery("");
+                          }}
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </form>
               ) : (
                 <Button size="icon" variant="ghost" onClick={() => setIsSearchOpen(true)} className="rounded-full">
@@ -158,6 +206,28 @@ export function Navbar() {
                 {link.name}
               </Link>
             ))}
+
+            {user ? (
+              <Button
+                variant="outline"
+                className="rounded-full w-full"
+                onClick={() => {
+                  logout();
+                  setIsMobileMenuOpen(false);
+                }}
+              >
+                Logout
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" className="rounded-full flex-1" asChild>
+                  <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>Login</Link>
+                </Button>
+                <Button className="rounded-full flex-1" asChild>
+                  <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)}>Sign Up</Link>
+                </Button>
+              </div>
+            )}
             
             <div className="pt-4 border-t border-border flex items-center justify-between">
               <span className="font-medium px-2">Theme</span>

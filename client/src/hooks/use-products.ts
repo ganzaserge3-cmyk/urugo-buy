@@ -4,6 +4,10 @@ import { api, buildUrl } from "@shared/routes";
 interface UseProductsParams {
   categoryId?: number;
   featured?: boolean;
+  inStock?: boolean;
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: "newest" | "price-asc" | "price-desc" | "rating-desc" | "name-asc";
   search?: string;
 }
 
@@ -32,5 +36,41 @@ export function useProduct(id: number) {
       return api.products.get.responses[200].parse(data);
     },
     enabled: !!id,
+  });
+}
+
+export function useRecommendations(productId: number) {
+  return useQuery({
+    queryKey: ["recommendations", productId],
+    queryFn: async () => {
+      const res = await fetch(`/api/recommendations/${productId}`);
+      if (!res.ok) throw new Error("Failed to load recommendations");
+      return res.json();
+    },
+    enabled: Number.isFinite(productId) && productId > 0,
+  });
+}
+
+export function useCompareProducts(ids: number[]) {
+  return useQuery({
+    queryKey: ["compare", ids],
+    queryFn: async () => {
+      const res = await fetch(`/api/compare?ids=${ids.join(",")}`);
+      if (!res.ok) throw new Error("Failed to compare products");
+      return res.json();
+    },
+    enabled: ids.length >= 2,
+  });
+}
+
+export function useSearchSuggestions(query: string) {
+  return useQuery({
+    queryKey: ["search-suggest", query],
+    queryFn: async () => {
+      const res = await fetch(`/api/search/suggest?q=${encodeURIComponent(query)}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: query.trim().length >= 2,
   });
 }

@@ -31,12 +31,23 @@ export const api = {
     },
   },
   products: {
+    sortEnum: z.enum([
+      'newest',
+      'price-asc',
+      'price-desc',
+      'rating-desc',
+      'name-asc',
+    ]),
     list: {
       method: 'GET' as const,
       path: '/api/products' as const,
       input: z.object({
         categoryId: z.coerce.number().optional(),
         featured: z.coerce.boolean().optional(),
+        inStock: z.coerce.boolean().optional(),
+        minPrice: z.coerce.number().nonnegative().optional(),
+        maxPrice: z.coerce.number().nonnegative().optional(),
+        sort: z.enum(['newest', 'price-asc', 'price-desc', 'rating-desc', 'name-asc']).optional(),
         search: z.string().optional(),
       }).optional(),
       responses: {
@@ -60,6 +71,102 @@ export const api = {
       responses: {
         201: z.custom<typeof subscribers.$inferSelect>(),
         400: errorSchemas.validation,
+      },
+    },
+  },
+  checkout: {
+    quote: {
+      method: 'POST' as const,
+      path: '/api/checkout/quote' as const,
+      input: z.object({
+        couponCode: z.string().optional(),
+        items: z.array(
+          z.object({
+            productId: z.number().int().positive(),
+            quantity: z.number().int().min(1).max(20),
+          }),
+        ).min(1, "At least one product is required"),
+      }),
+      responses: {
+        200: z.object({
+          subtotal: z.number(),
+          shippingFee: z.number(),
+          tax: z.number(),
+          discount: z.number().default(0),
+          couponCode: z.string().optional(),
+          total: z.number(),
+        }),
+        400: errorSchemas.validation,
+      },
+    },
+  },
+  orders: {
+    create: {
+      method: 'POST' as const,
+      path: '/api/orders' as const,
+      input: z.object({
+        customerName: z.string().min(2, "Customer name is required"),
+        customerEmail: z.string().email("Invalid email address"),
+        shippingAddress: z.string().min(5, "Shipping address is required"),
+        city: z.string().min(2, "City is required"),
+        country: z.string().min(2).default("USA"),
+        couponCode: z.string().optional(),
+        deliverySlot: z.string().optional(),
+        paymentMethod: z.enum(["card", "paypal", "momo", "cod"]).optional(),
+        items: z.array(
+          z.object({
+            productId: z.number().int().positive(),
+            quantity: z.number().int().min(1).max(20),
+          }),
+        ).min(1, "At least one product is required"),
+      }),
+      responses: {
+        201: z.object({
+          id: z.number(),
+          orderNumber: z.string(),
+          total: z.number(),
+          status: z.string(),
+        }),
+        400: errorSchemas.validation,
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/orders/:id' as const,
+      responses: {
+        200: z.object({
+          order: z.object({
+            id: z.number(),
+            orderNumber: z.string(),
+            customerName: z.string(),
+            customerEmail: z.string(),
+            shippingAddress: z.string(),
+            city: z.string(),
+            country: z.string(),
+            subtotal: z.string(),
+            shippingFee: z.string(),
+            tax: z.string(),
+            total: z.string(),
+            status: z.string(),
+            couponCode: z.string().optional(),
+            deliverySlot: z.string().optional(),
+            paymentMethod: z.string().optional(),
+            paymentStatus: z.string().optional(),
+            createdAt: z.string().or(z.date()),
+          }),
+          items: z.array(
+            z.object({
+              id: z.number(),
+              orderId: z.number(),
+              productId: z.number(),
+              productName: z.string(),
+              unitPrice: z.string(),
+              quantity: z.number(),
+              lineTotal: z.string(),
+            }),
+          ),
+        }),
+        404: errorSchemas.notFound,
       },
     },
   },
@@ -95,5 +202,7 @@ export function buildUrl(path: string, params?: Record<string, string | number |
 // TYPE HELPERS
 // ============================================
 export type SubscribeInput = z.infer<typeof api.newsletter.subscribe.input>;
+export type CheckoutQuoteInput = z.infer<typeof api.checkout.quote.input>;
+export type CreateOrderInput = z.infer<typeof api.orders.create.input>;
 export type ProductsListResponse = z.infer<typeof api.products.list.responses[200]>;
 export type CategoriesListResponse = z.infer<typeof api.categories.list.responses[200]>;

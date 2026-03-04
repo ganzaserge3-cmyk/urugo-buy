@@ -108,4 +108,12 @@
   .dark .card-hover {
     @apply hover:shadow-white/5;
   }
+
+  .brand-logo-text {
+    background: linear-gradient(135deg, #2f9e44 0%, #2b8a3e 45%, #1f6f35 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+  }
 }
