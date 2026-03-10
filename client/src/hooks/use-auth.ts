@@ -37,19 +37,15 @@ export const useAuth = create<AuthStore>()(
       user: null,
       token: null,
       login: async ({ email, password }) => {
-        if (email.toLowerCase() === adminEmail) {
-          const res = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password }),
-          });
+        const normalizedEmail = email.toLowerCase();
+        const adminLoginRes = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
 
-          if (!res.ok) {
-            const payload = await res.json().catch(() => ({ message: "Login failed" }));
-            throw new Error(payload.message || "Login failed");
-          }
-
-          const data = await res.json();
+        if (adminLoginRes.ok) {
+          const data = await adminLoginRes.json();
           set({
             user: data.user,
             token: data.token,
@@ -57,18 +53,36 @@ export const useAuth = create<AuthStore>()(
           return;
         }
 
-        const firebaseAuth = ensureFirebaseAuth();
-        const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
-        const fbUser = credential.user;
-        const idToken = await fbUser.getIdToken();
-        set({
-          user: {
-            name: fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
-            email: fbUser.email || email,
-            role: "customer",
-          },
-          token: `firebase-id:${idToken}`,
-        });
+        if (normalizedEmail === adminEmail) {
+          const payload = await adminLoginRes.json().catch(() => ({ message: "Login failed" }));
+          throw new Error(payload.message || "Login failed");
+        }
+
+        if (adminLoginRes.status && adminLoginRes.status !== 401) {
+          const payload = await adminLoginRes.json().catch(() => ({ message: "Login failed" }));
+          throw new Error(payload.message || "Login failed");
+        }
+
+        try {
+          const firebaseAuth = ensureFirebaseAuth();
+          const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+          const fbUser = credential.user;
+          const idToken = await fbUser.getIdToken();
+          set({
+            user: {
+              name: fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
+              email: fbUser.email || email,
+              role: "customer",
+            },
+            token: `firebase-id:${idToken}`,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof Error) {
+            throw error;
+          }
+          throw new Error("Login failed");
+        }
       },
       signup: async ({ name, email, password, confirmPassword }) => {
         if (!name || !email || !password || !confirmPassword) {
