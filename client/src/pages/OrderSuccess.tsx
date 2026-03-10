@@ -12,7 +12,23 @@ export default function OrderSuccess() {
   const { data: tracking } = useOrderTracking(orderId);
   const [notificationPreview, setNotificationPreview] = useState<{ emailMessage: string; smsMessage: string } | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<string>("pending");
+  const [paymentNotice, setPaymentNotice] = useState<string>("");
   useSeo("Order Success - UrugoBuy", "Track your order status and shipment updates.");
+
+  useEffect(() => {
+    if (!orderId) return;
+    try {
+      const raw = sessionStorage.getItem("checkout-payment-note");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { orderId?: number; message?: string };
+      if (parsed.orderId === orderId && parsed.message) {
+        setPaymentNotice(parsed.message);
+        sessionStorage.removeItem("checkout-payment-note");
+      }
+    } catch {
+      sessionStorage.removeItem("checkout-payment-note");
+    }
+  }, [orderId]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -90,7 +106,7 @@ export default function OrderSuccess() {
           <div>
             <p className="text-muted-foreground">Payment</p>
             <p className="font-semibold capitalize">
-              {data.order.paymentMethod || "card"} ({paymentStatus || data.order.paymentStatus || "pending"})
+              {(data.order.paymentMethod || "cash on delivery").replace("cod", "cash on delivery")} ({paymentStatus || data.order.paymentStatus || "pending"})
             </p>
           </div>
           <div>
@@ -98,6 +114,12 @@ export default function OrderSuccess() {
             <p className="font-semibold">{data.order.deliverySlot || "Standard delivery"}</p>
           </div>
         </div>
+
+        {paymentNotice && (
+          <div className="mb-6 border border-amber-300 bg-amber-50 text-amber-900 rounded-xl p-4 text-sm">
+            {paymentNotice}
+          </div>
+        )}
 
         {notificationPreview && (
           <div className="mb-8 border border-border rounded-xl p-4 bg-muted/20">

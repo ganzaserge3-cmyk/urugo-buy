@@ -34,6 +34,7 @@ export default function ProductDetail() {
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [selectedSize, setSelectedSize] = useState("Standard");
   const [selectedPack, setSelectedPack] = useState("Single");
+  const [quantity, setQuantity] = useState(1);
   const [helpfulVotes, setHelpfulVotes] = useState<Record<number, number>>({});
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
   const [questions, setQuestions] = useState<Array<{
@@ -52,10 +53,16 @@ export default function ProductDetail() {
   const watchProductAlert = useWatchProductAlert();
   const { data: compared = [] } = useCompareProducts(compareIds);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const imageContext = useMemo(() => ({
+    categoryId: product?.categoryId,
+    name: product?.name,
+    description: product?.description,
+  }), [product?.categoryId, product?.description, product?.name]);
 
   useSeo(
     product ? `${product.name} - UrugoBuy` : "Product - UrugoBuy",
     product ? product.description : "View product details, reviews, and recommendations.",
+    { canonicalPath: product ? `/product/${product.id}` : "/shop" },
   );
 
   const productImages = useMemo(() => {
@@ -64,17 +71,20 @@ export default function ProductDetail() {
       imageUrl: product.imageUrl,
       imageGallery: Array.isArray((product as any).imageGallery) ? (product as any).imageGallery as string[] : [],
       productId: product.id,
+      context: imageContext,
     });
-  }, [product]);
+  }, [imageContext, product]);
 
   useEffect(() => {
     if (!product) {
       setActiveImageIndex(0);
       setImageSrc("/logo-house.png");
+      setQuantity(1);
       return;
     }
     setActiveImageIndex(0);
     setImageSrc(productImages[0] || "/logo-house.png");
+    setQuantity(1);
   }, [product?.id, productImages]);
 
   useEffect(() => {
@@ -142,10 +152,10 @@ export default function ProductDetail() {
       });
       return;
     }
-    addItem(product);
+    addItem(product, quantity);
     toast({
       title: "Added to Cart",
-      description: `${product.name} has been added to your cart.`,
+      description: `${quantity} x ${product.name} added to your cart.`,
     });
   };
 
@@ -214,6 +224,9 @@ export default function ProductDetail() {
   const inCompare = compareIds.includes(product.id);
   const hasMultipleImages = productImages.length > 1;
   const variantStock = Math.max(0, product.stockQuantity - (selectedPack === "Family Pack" ? 2 : 0));
+  useEffect(() => {
+    setQuantity((prev) => Math.max(1, Math.min(prev, Math.max(1, variantStock))));
+  }, [variantStock]);
   const goToImage = (index: number) => {
     const nextIndex = Math.max(0, Math.min(index, productImages.length - 1));
     setActiveImageIndex(nextIndex);
@@ -269,6 +282,11 @@ export default function ProductDetail() {
       toast({ variant: "destructive", title: "Answer failed" });
       return;
     }
+    toast({
+      title: "Answer posted",
+      description: "Your reply is now visible in the product conversation.",
+    });
+    setAnswerDrafts((prev) => ({ ...prev, [questionId]: "" }));
     const rows = await fetch(`/api/products/${product.id}/questions`).then((r) => (r.ok ? r.json() : []));
     setQuestions(Array.isArray(rows) ? rows : []);
   };
@@ -286,10 +304,10 @@ export default function ProductDetail() {
           {/* Images */}
           <div>
             <div className="aspect-[4/5] md:aspect-square bg-muted rounded-[2rem] overflow-hidden border border-border relative">
-              <img 
+                <img 
                 src={imageSrc}
                 alt={product.name} 
-                onError={() => setImageSrc(normalizeProductImageUrl(undefined, product.id))}
+                onError={() => setImageSrc(normalizeProductImageUrl(undefined, product.id, imageContext))}
                 className="w-full h-full object-cover"
               />
               {hasMultipleImages && (
@@ -338,7 +356,7 @@ export default function ProductDetail() {
                       src={image}
                       alt={`${product.name} view ${index + 1}`}
                       onError={(e) => {
-                        const fallback = normalizeProductImageUrl(undefined, product.id + index + 100);
+                        const fallback = normalizeProductImageUrl(undefined, product.id + index + 100, imageContext);
                         (e.currentTarget as HTMLImageElement).src = fallback;
                       }}
                       className="w-full h-full object-cover"
@@ -403,6 +421,29 @@ export default function ProductDetail() {
                   <option value="2-Pack">2-Pack</option>
                   <option value="Family Pack">Family Pack</option>
                 </select>
+              </div>
+            </div>
+            <div className="mb-6">
+              <p className="text-sm text-muted-foreground mb-2">Quantity</p>
+              <div className="inline-flex items-center rounded-full border border-border bg-background p-1">
+                <button
+                  type="button"
+                  onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                  className="h-9 w-9 rounded-full hover:bg-muted transition"
+                  aria-label="Decrease quantity"
+                >
+                  -
+                </button>
+                <span className="w-12 text-center font-medium">{quantity}</span>
+                <button
+                  type="button"
+                  onClick={() => setQuantity((prev) => Math.min(Math.max(1, variantStock), prev + 1))}
+                  className="h-9 w-9 rounded-full hover:bg-muted transition"
+                  aria-label="Increase quantity"
+                  disabled={variantStock <= 0}
+                >
+                  +
+                </button>
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-8">
@@ -534,10 +575,11 @@ export default function ProductDetail() {
           </div>
         </section>
         <section className="mt-14 border-t border-border pt-10">
-          <h2 className="font-display text-3xl font-bold mb-4">Product Q&A</h2>
+          <h2 className="font-display text-3xl font-bold mb-2">Product Conversation</h2>
+          <p className="text-sm text-muted-foreground mb-4">Customers ask about this product here. You can answer directly inside the app.</p>
           <form onSubmit={submitQuestion} className="flex gap-2 mb-6">
             <Input
-              placeholder="Ask a question about this product..."
+              placeholder="Ask about this product..."
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
               required
@@ -546,16 +588,20 @@ export default function ProductDetail() {
           </form>
           <div className="space-y-3">
             {questions.length === 0 ? (
-              <p className="text-muted-foreground">No questions yet.</p>
+              <p className="text-muted-foreground">No messages yet.</p>
             ) : (
               questions.map((item) => (
                 <div key={item.id} className="border border-border rounded-xl p-4">
-                  <p className="font-medium">Q: {item.question}</p>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="font-medium mb-1">Customer</p>
+                    <p>{item.question}</p>
+                  </div>
                   {item.answer ? (
-                    <div className="mt-2 text-muted-foreground">
-                      <p>A: {item.answer}</p>
-                      <p className="text-xs mt-1">
-                        Answered {item.answeredBy ? `by ${item.answeredBy}` : ""}{item.answeredAt ? ` on ${new Date(item.answeredAt).toLocaleString()}` : ""}
+                    <div className="mt-3 rounded-2xl bg-primary/10 px-4 py-3 text-foreground">
+                      <p className="font-medium mb-1">Store reply</p>
+                      <p>{item.answer}</p>
+                      <p className="text-xs mt-2 text-muted-foreground">
+                        {item.answeredAt ? `Answered on ${new Date(item.answeredAt).toLocaleString()}` : "Answered"}
                       </p>
                     </div>
                   ) : (

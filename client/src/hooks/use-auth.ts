@@ -3,6 +3,8 @@ import { persist } from "zustand/middleware";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { auth, ensureFirebaseAuth } from "@/lib/firebase";
 
+const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || "ganzaserge3@gmail.com").toLowerCase();
+
 type AuthUser = {
   name: string;
   email: string;
@@ -35,7 +37,7 @@ export const useAuth = create<AuthStore>()(
       user: null,
       token: null,
       login: async ({ email, password }) => {
-        if (email.toLowerCase() === "admin@urugobuy.com") {
+        if (email.toLowerCase() === adminEmail) {
           const res = await fetch("/api/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

@@ -5,8 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useSeo } from "@/hooks/use-seo";
+
+const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || "ganzaserge3@gmail.com";
 
 export default function Login() {
+  useSeo("Login - UrugoBuy", "Sign in to access checkout, account tools, order history, and alerts.", { canonicalPath: "/login" });
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { login } = useAuth();
@@ -70,8 +74,12 @@ export default function Login() {
           </Link>
         </p>
         <p className="text-xs text-muted-foreground mt-3">
-          Admin demo: admin@urugobuy.com / admin123
+          Admin login: {adminEmail}
         </p>
+        <div className="mt-6 rounded-2xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground space-y-1">
+          <p>Access order tracking, saved preferences, subscriptions, and faster repeat checkout.</p>
+          <p>Your checkout and account alerts stay tied to this email.</p>
+        </div>
       </div>
     </div>
   );

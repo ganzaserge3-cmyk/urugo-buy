@@ -25,8 +25,8 @@ const defaultPreferences: AccountPreferences = {
 };
 
 export default function Account() {
-  useSeo("My Account - UrugoBuy", "Manage loyalty, referrals, alerts, returns, support, and security settings.");
-  const { user } = useAuth();
+  useSeo("My Account - UrugoBuy", "Manage loyalty, referrals, alerts, returns, support, and security settings.", { canonicalPath: "/account", robots: "noindex,follow" });
+  const { user, token } = useAuth();
   const { toast } = useToast();
   const { data: summary, refetch: refetchSummary } = useAccountSummary();
   const { data: orders = [], refetch: refetchOrders } = useAccountOrders();
@@ -50,6 +50,11 @@ export default function Account() {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorVerified, setTwoFactorVerified] = useState(false);
   const [subscriptions, setSubscriptions] = useState<Array<{ id: number; frequency: string; status: string; nextRunAt?: string }>>([]);
+  const [orderQuery, setOrderQuery] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [supportTickets, setSupportTickets] = useState<Array<{ id: number; topic: string; message: string; status: string; createdAt: string }>>([]);
+  const [returnsHistory, setReturnsHistory] = useState<Array<{ id: number; orderId: number; reason: string; status: string; createdAt: string; timeline?: Array<{ id: number; status: string; note?: string | null; createdAt: string }> }>>([]);
+  const [notificationDevices, setNotificationDevices] = useState<Array<{ id: number; endpoint: string; platform: string; createdAt: string }>>([]);
 
   useEffect(() => {
     if (preferences) setLocalPrefs(preferences);
@@ -60,11 +65,38 @@ export default function Account() {
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => setSubscriptions(Array.isArray(rows) ? rows : []))
       .catch(() => setSubscriptions([]));
-  }, []);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    authFetch("/api/account/support/tickets")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setSupportTickets(Array.isArray(rows) ? rows : []))
+      .catch(() => setSupportTickets([]));
+
+    authFetch("/api/account/returns")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setReturnsHistory(Array.isArray(rows) ? rows : []))
+      .catch(() => setReturnsHistory([]));
+
+    authFetch("/api/account/notifications/subscriptions")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setNotificationDevices(Array.isArray(rows) ? rows : []))
+      .catch(() => setNotificationDevices([]));
+  }, [token]);
 
   const siteBaseUrl = useMemo(() => {
     return typeof window !== "undefined" ? window.location.origin : "";
   }, []);
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const matchesQuery =
+        !orderQuery.trim() ||
+        order.orderNumber.toLowerCase().includes(orderQuery.trim().toLowerCase());
+      const matchesStatus = orderStatusFilter === "all" || order.status === orderStatusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [orderQuery, orderStatusFilter, orders]);
 
   if (!user) {
     return (
@@ -129,6 +161,8 @@ export default function Account() {
     setSupportTopic("");
     setSupportMessage("");
     toast({ title: "Support ticket submitted" });
+    const rows = await authFetch("/api/account/support/tickets").then((r) => (r.ok ? r.json() : []));
+    setSupportTickets(Array.isArray(rows) ? rows : []);
   };
 
   const handleReturnRequest = async (e: React.FormEvent) => {
@@ -147,20 +181,35 @@ export default function Account() {
     setReturnOrderId("");
     setReturnReason("");
     toast({ title: "Return request submitted" });
+    const rows = await authFetch("/api/account/returns").then((r) => (r.ok ? r.json() : []));
+    setReturnsHistory(Array.isArray(rows) ? rows : []);
   };
 
-  const handleChatSend = (e: React.FormEvent) => {
+  const handleChatSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatText.trim()) return;
     const next = chatText.trim();
     setChatMessages((prev) => [...prev, { role: "user", text: next }]);
     setChatText("");
-    setTimeout(() => {
+    try {
+      const res = await authFetch("/api/support/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: "Live chat request", message: next }),
+      });
+      if (!res.ok) throw new Error("Support request failed");
+      const rows = await authFetch("/api/account/support/tickets").then((r) => (r.ok ? r.json() : []));
+      setSupportTickets(Array.isArray(rows) ? rows : []);
       setChatMessages((prev) => [
         ...prev,
-        { role: "bot", text: "Thanks. Our support team will follow up in your ticket inbox shortly." },
+        { role: "bot", text: "Message received. We turned this into a support ticket so the team can follow up properly." },
       ]);
-    }, 350);
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "bot", text: "Message saved locally, but support could not be reached right now. Please try again shortly." },
+      ]);
+    }
   };
 
   const handleGenerateWishlistShare = async () => {
@@ -241,7 +290,22 @@ export default function Account() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ endpoint, platform: "web" }),
     });
-    if (res.ok) toast({ title: "Push notifications enabled" });
+    if (res.ok) {
+      toast({ title: "Push notifications enabled" });
+      const rows = await authFetch("/api/account/notifications/subscriptions").then((r) => (r.ok ? r.json() : []));
+      setNotificationDevices(Array.isArray(rows) ? rows : []);
+    }
+  };
+
+  const removeNotificationDevice = async (id: number) => {
+    const res = await authFetch(`/api/account/notifications/subscriptions/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ message: "Failed to remove device" }));
+      toast({ variant: "destructive", title: "Remove failed", description: payload.message });
+      return;
+    }
+    setNotificationDevices((prev) => prev.filter((device) => device.id !== id));
+    toast({ title: "Notification device removed" });
   };
 
   const skipSubscriptionNext = async (id: number) => {
@@ -427,6 +491,23 @@ export default function Account() {
             <Button variant="outline" className="rounded-full" onClick={registerPush}>
               Enable Push Notifications
             </Button>
+            <div className="space-y-2 pt-2">
+              {notificationDevices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No notification devices registered yet.</p>
+              ) : (
+                notificationDevices.map((device) => (
+                  <div key={device.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
+                    <div>
+                      <p className="font-medium capitalize">{device.platform} device</p>
+                      <p className="text-muted-foreground">Added {new Date(device.createdAt).toLocaleString()}</p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => removeNotificationDevice(device.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </section>
 
@@ -455,12 +536,34 @@ export default function Account() {
         </section>
 
         <section className="border border-border rounded-2xl p-5 bg-card">
-          <h2 className="font-display text-2xl font-semibold mb-4">Order History and Reorder</h2>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h2 className="font-display text-2xl font-semibold">Order History and Reorder</h2>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder="Search order number"
+                value={orderQuery}
+                onChange={(e) => setOrderQuery(e.target.value)}
+                className="sm:w-52"
+              />
+              <select
+                value={orderStatusFilter}
+                onChange={(e) => setOrderStatusFilter(e.target.value)}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="packed">Packed</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
+          </div>
           <div className="space-y-3">
-            {orders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <p className="text-muted-foreground">No orders found yet.</p>
             ) : (
-              orders.map((order) => (
+              filteredOrders.map((order) => (
                 <div key={order.id} className="grid grid-cols-12 gap-2 border-b border-border pb-3 text-sm">
                   <span className="col-span-3">{order.orderNumber}</span>
                   <span className="col-span-3 capitalize">{order.status}</span>
@@ -499,6 +602,21 @@ export default function Account() {
               <p>FAQ: Refunds are processed within 3-5 business days.</p>
               <p>FAQ: Track order progress from your order success page.</p>
             </div>
+            <div className="space-y-2 pt-2">
+              {supportTickets.slice(0, 4).map((ticket) => (
+                <div key={ticket.id} className="rounded-lg border border-border p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">{ticket.topic}</p>
+                    <span className="capitalize text-muted-foreground">{ticket.status}</span>
+                  </div>
+                  <p className="text-muted-foreground mt-1">{ticket.message}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{new Date(ticket.createdAt).toLocaleString()}</p>
+                </div>
+              ))}
+              {supportTickets.length === 0 && (
+                <p className="text-sm text-muted-foreground">No support tickets yet.</p>
+              )}
+            </div>
           </form>
 
           <div className="border border-border rounded-2xl p-5 bg-card">
@@ -523,6 +641,9 @@ export default function Account() {
 
         <section className="border border-border rounded-2xl p-5 bg-card">
           <h2 className="font-display text-2xl font-semibold mb-4">Returns Portal</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Submit returns against delivered orders, then track updates from your order pages and support messages.
+          </p>
           <form onSubmit={handleReturnRequest} className="grid md:grid-cols-3 gap-3">
             <Input
               type="number"
@@ -539,6 +660,33 @@ export default function Account() {
             />
             <Button type="submit" className="rounded-full">Request Return</Button>
           </form>
+          <div className="space-y-3 mt-5">
+            {returnsHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No return requests submitted yet.</p>
+            ) : (
+              returnsHistory.map((row) => (
+                <div key={row.id} className="rounded-xl border border-border p-4 text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <p className="font-medium">Return #{row.id} for Order {row.orderId}</p>
+                    <span className="capitalize text-muted-foreground">{row.status}</span>
+                  </div>
+                  <p className="text-muted-foreground mt-1">{row.reason}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{new Date(row.createdAt).toLocaleString()}</p>
+                  {row.timeline && row.timeline.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {row.timeline.map((event) => (
+                        <div key={event.id} className="rounded-lg bg-muted/20 px-3 py-2">
+                          <p className="font-medium capitalize">{event.status}</p>
+                          {event.note && <p className="text-muted-foreground">{event.note}</p>}
+                          <p className="text-xs text-muted-foreground mt-1">{new Date(event.createdAt).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </section>
       </div>
     </div>

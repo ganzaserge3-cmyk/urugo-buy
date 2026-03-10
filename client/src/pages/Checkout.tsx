@@ -1,19 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, CreditCard, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCart } from "@/hooks/use-cart";
 import { useCheckoutQuote, useCreateOrder } from "@/hooks/use-checkout";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/hooks/use-seo";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Checkout() {
-  useSeo("Checkout - UrugoBuy", "Secure checkout with delivery slot, coupon support, and payment options.");
+  useSeo("Checkout - UrugoBuy", "Secure checkout with delivery slot, coupon support, and payment options.", { canonicalPath: "/checkout", robots: "noindex,follow" });
   const [, setLocation] = useLocation();
   const { items, totalPrice, clearCart, setIsOpen } = useCart();
   const { toast } = useToast();
   const createOrder = useCreateOrder();
+  const { user } = useAuth();
 
   const [form, setForm] = useState({
     customerName: "",
@@ -25,7 +27,7 @@ export default function Checkout() {
     giftCardCode: "",
     deliverySlot: "",
     fulfillmentType: "delivery" as "delivery" | "pickup",
-    paymentMethod: "card" as "card" | "paypal" | "momo" | "cod",
+    paymentMethod: "cod" as "card" | "paypal" | "momo" | "cod",
   });
   const [deliverySlots, setDeliverySlots] = useState<string[]>([]);
   const [deliverySlotOptions, setDeliverySlotOptions] = useState<Array<{
@@ -43,6 +45,8 @@ export default function Checkout() {
   const [currency, setCurrency] = useState("USD");
   const [rates, setRates] = useState<Array<{ code: string; rateFromUsd: string; symbol: string }>>([]);
   const [locale, setLocale] = useState("en");
+  const checkoutStorageKey = "checkout-draft";
+  const [showPromoFields, setShowPromoFields] = useState(false);
 
   const quoteItems = items.map((item) => ({ productId: item.id, quantity: item.quantity }));
   const hasItems = quoteItems.length > 0;
@@ -62,6 +66,43 @@ export default function Checkout() {
     ar: { checkout: "الدفع", placeOrder: "تأكيد الطلب", shippingAddress: "عنوان الشحن" },
   };
   const labels = labelsByLocale[locale] || labelsByLocale.en;
+  const quickPaymentOptions = [
+    {
+      id: "cod" as const,
+      title: "Pay on delivery",
+      subtitle: "The easiest option. Place your order now and pay cash when it arrives.",
+      icon: Wallet,
+    },
+  ];
+  const primaryButtonLabel = "Place Cash on Delivery Order";
+  const selectedRate = useMemo(
+    () => rates.find((row) => row.code === currency),
+    [currency, rates],
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(checkoutStorageKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<typeof form>;
+      setForm((prev) => ({ ...prev, ...draft }));
+    } catch {
+      localStorage.removeItem(checkoutStorageKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(checkoutStorageKey, JSON.stringify(form));
+  }, [form]);
+
+  useEffect(() => {
+    if (!user) return;
+    setForm((prev) => ({
+      ...prev,
+      customerName: prev.customerName || user.name,
+      customerEmail: prev.customerEmail || user.email,
+    }));
+  }, [user]);
 
   useEffect(() => {
     fetch("/api/delivery-slots")
@@ -170,19 +211,17 @@ export default function Checkout() {
         items: quoteItems,
       });
 
-      if (form.paymentMethod === "card" && quote) {
-        const paymentRes = await fetch("/api/payments/create-intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: quote.total, orderId: order.id }),
-        });
-        if (!paymentRes.ok) {
-          throw new Error("Payment initialization failed");
-        }
-      }
+      sessionStorage.setItem(
+        "checkout-payment-note",
+        JSON.stringify({
+          orderId: order.id,
+          message: "Your order was placed successfully. Please keep cash ready for delivery.",
+        }),
+      );
 
       clearCart();
       setIsOpen(false);
+      localStorage.removeItem(checkoutStorageKey);
       setLocation(`/order-success/${order.id}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to place order";
@@ -214,21 +253,29 @@ export default function Checkout() {
         <div className="grid lg:grid-cols-3 gap-8">
         <form onSubmit={handleSubmit} className="lg:col-span-2 border border-border rounded-2xl p-6 md:p-8 space-y-5 bg-card">
             <h1 className="font-display text-3xl font-bold">{labels.checkout}</h1>
-            <p className="text-muted-foreground">Enter shipping details to place your order.</p>
-            <div className="grid grid-cols-2 gap-2">
-              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={locale} onChange={(e) => setLocale(e.target.value)}>
-                <option value="en">English</option>
-                <option value="fr">French</option>
-                <option value="ar">Arabic</option>
-              </select>
-              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                {rates.map((rate) => (
-                  <option key={rate.code} value={rate.code}>{rate.code}</option>
-                ))}
-                {rates.length === 0 && <option value="USD">USD</option>}
-              </select>
+            <p className="text-muted-foreground">A short checkout with the fewest steps needed to pay and confirm your order.</p>
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-medium">Fast checkout</p>
+                  <p className="text-sm text-muted-foreground">Contact, address, payment, done.</p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span className="rounded-full bg-background px-3 py-1">Secure payment</span>
+                  <span className="rounded-full bg-background px-3 py-1">Saved draft</span>
+                  <span className="rounded-full bg-background px-3 py-1">Live stock check</span>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+              Prices are shown in {currency}. You can finish checkout without changing extra settings.
             </div>
 
+            <div className="space-y-3 rounded-2xl border border-border p-5">
+              <div>
+                <h2 className="font-display text-2xl font-semibold">1. Contact</h2>
+                <p className="text-sm text-muted-foreground">Where we send order updates and delivery details.</p>
+              </div>
             <Input
               placeholder="Full name"
               value={form.customerName}
@@ -242,6 +289,13 @@ export default function Checkout() {
               onChange={(e) => setForm((prev) => ({ ...prev, customerEmail: e.target.value }))}
               required
             />
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border p-5">
+              <div>
+                <h2 className="font-display text-2xl font-semibold">2. Delivery</h2>
+                <p className="text-sm text-muted-foreground">Choose where and how you want to receive the order.</p>
+              </div>
             <Input
               placeholder={labels.shippingAddress}
               value={form.shippingAddress}
@@ -275,16 +329,6 @@ export default function Checkout() {
               value={form.country}
               onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
               required
-            />
-            <Input
-              placeholder="Coupon code (optional)"
-              value={form.couponCode}
-              onChange={(e) => setForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
-            />
-            <Input
-              placeholder="Gift card code (optional)"
-              value={form.giftCardCode}
-              onChange={(e) => setForm((prev) => ({ ...prev, giftCardCode: e.target.value.toUpperCase() }))}
             />
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -326,49 +370,83 @@ export default function Checkout() {
                 Click & Collect
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Button
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border p-5">
+              <div>
+                <h2 className="font-display text-2xl font-semibold">3. Payment</h2>
+                <p className="text-sm text-muted-foreground">Pick the easiest way to complete this order.</p>
+              </div>
+              <div className="grid gap-3">
+                {quickPaymentOptions.map((option) => {
+                  const Icon = option.icon;
+                  const active = form.paymentMethod === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, paymentMethod: option.id }))}
+                      className={`rounded-2xl border p-4 text-left transition ${
+                        active ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex gap-3">
+                          <div className={`mt-0.5 rounded-full p-2 ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{option.title}</p>
+                              {option.id === "cod" && (
+                                <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">{option.subtitle}</p>
+                          </div>
+                        </div>
+                        {active && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
                 type="button"
-                variant={form.paymentMethod === "card" ? "default" : "outline"}
-                onClick={() => setForm((prev) => ({ ...prev, paymentMethod: "card" }))}
-                className="rounded-full"
+                onClick={() => setShowPromoFields((prev) => !prev)}
+                className="text-sm font-medium text-primary"
               >
-                Pay by Card
-              </Button>
-              <Button
-                type="button"
-                variant={form.paymentMethod === "paypal" ? "default" : "outline"}
-                onClick={() => setForm((prev) => ({ ...prev, paymentMethod: "paypal" }))}
-                className="rounded-full"
-              >
-                PayPal
-              </Button>
-              <Button
-                type="button"
-                variant={form.paymentMethod === "momo" ? "default" : "outline"}
-                onClick={() => setForm((prev) => ({ ...prev, paymentMethod: "momo" }))}
-                className="rounded-full"
-              >
-                MoMo
-              </Button>
-              <Button
-                type="button"
-                variant={form.paymentMethod === "cod" ? "default" : "outline"}
-                onClick={() => setForm((prev) => ({ ...prev, paymentMethod: "cod" }))}
-                className="rounded-full"
-              >
-                Cash on Delivery
-              </Button>
+                {showPromoFields ? "Hide coupon and gift card" : "Have a coupon or gift card?"}
+              </button>
+              {showPromoFields && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    placeholder="Coupon code"
+                    value={form.couponCode}
+                    onChange={(e) => setForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
+                  />
+                  <Input
+                    placeholder="Gift card code"
+                    value={form.giftCardCode}
+                    onChange={(e) => setForm((prev) => ({ ...prev, giftCardCode: e.target.value.toUpperCase() }))}
+                  />
+                </div>
+              )}
             </div>
             {couponMessage && <p className="text-sm text-muted-foreground">{couponMessage}</p>}
             {riskMessage && <p className="text-sm text-amber-600">{riskMessage}</p>}
+            <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm text-muted-foreground">
+              Cash on delivery is active. You place the order now and pay when the delivery arrives.
+            </div>
             <div className="text-xs text-muted-foreground border border-border rounded-lg p-3 bg-muted/20">
               Secure checkout with encryption, fraud checks, and protected payment processing.
             </div>
 
             <Button type="submit" size="lg" className="w-full rounded-full h-12" disabled={createOrder.isPending || isQuoteLoading}>
-              {createOrder.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
-              {createOrder.isPending ? "Placing Order..." : labels.placeOrder}
+              {createOrder.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wallet className="w-4 h-4 mr-2" />}
+              {createOrder.isPending ? "Processing..." : primaryButtonLabel}
             </Button>
           </form>
 
@@ -417,13 +495,21 @@ export default function Checkout() {
                 <span>
                   {(() => {
                     const baseTotal = quote?.total ?? totalPrice();
-                    const selectedRate = rates.find((row) => row.code === currency);
                     const converted = selectedRate ? baseTotal * Number(selectedRate.rateFromUsd) : baseTotal;
                     const symbol = selectedRate?.symbol ?? "$";
                     return `${symbol}${converted.toFixed(2)}`;
                   })()}
                 </span>
               </div>
+            </div>
+            <div className="mt-6 rounded-2xl border border-border bg-background/80 p-4">
+              <h3 className="font-medium mb-2">Checkout confidence</h3>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li>Encrypted checkout and server-side order validation</li>
+                <li>Live stock and delivery slot checks before order placement</li>
+                <li>Draft details are saved locally if you leave checkout</li>
+                <li>You will pay when the order arrives.</li>
+              </ul>
             </div>
           </aside>
         </div>

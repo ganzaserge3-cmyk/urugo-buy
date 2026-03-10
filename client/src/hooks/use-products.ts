@@ -98,7 +98,7 @@ export function useSearchSuggestions(query: string) {
     queryFn: async () => {
       const res = await fetch(`/api/search/suggest?q=${encodeURIComponent(query)}`);
       if (!res.ok) return [];
-      return res.json();
+      return res.json() as Promise<Array<{ id: number; name: string; price: string; categoryId?: number | null }>>;
     },
     enabled: query.trim().length >= 2,
   });

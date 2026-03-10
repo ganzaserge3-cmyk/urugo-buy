@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useDeferredValue } from "react";
 import { Link, useLocation } from "wouter";
 import { ShoppingBag, Search, Menu, X, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,8 @@ export function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { data: suggestions = [] } = useSearchSuggestions(searchQuery);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const { data: suggestions = [] } = useSearchSuggestions(deferredSearchQuery);
   
   const { totalItems, setIsOpen } = useCart();
   const { theme, toggleTheme } = useTheme();
@@ -122,7 +123,7 @@ export function Navbar() {
                   </Button>
                   {suggestions.length > 0 && (
                     <div className="absolute top-12 left-0 w-full bg-background border border-border rounded-xl shadow-lg overflow-hidden z-50">
-                      {suggestions.map((item: { id: number; name: string }) => (
+                      {suggestions.map((item: { id: number; name: string; price?: string; categoryId?: number | null }) => (
                         <button
                           key={item.id}
                           type="button"
@@ -134,7 +135,15 @@ export function Navbar() {
                             setSearchQuery("");
                           }}
                         >
-                          {item.name}
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.categoryId === 1 ? "Fruit" : item.categoryId === 2 ? "Food" : "Product"}
+                              </p>
+                            </div>
+                            {item.price && <span className="text-xs text-muted-foreground">${Number(item.price).toFixed(2)}</span>}
+                          </div>
                         </button>
                       ))}
                     </div>

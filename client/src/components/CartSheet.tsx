@@ -15,6 +15,10 @@ import { normalizeProductImageUrl } from "@/lib/images";
 
 export function CartSheet() {
   const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, clearCart } = useCart();
+  const subtotal = totalPrice();
+  const freeShippingThreshold = 100;
+  const amountUntilFreeShipping = Math.max(0, freeShippingThreshold - subtotal);
+  const shippingProgress = Math.min(100, (subtotal / freeShippingThreshold) * 100);
 
   if (!isOpen && items.length === 0) return null;
 
@@ -48,10 +52,14 @@ export function CartSheet() {
                 <div key={item.id} className="flex gap-4">
                   <div className="w-20 h-24 rounded-xl overflow-hidden bg-muted flex-shrink-0">
                     <img 
-                      src={normalizeProductImageUrl(item.imageUrl, item.id)} 
+                      src={normalizeProductImageUrl(item.imageUrl, item.id, {
+                        name: item.name,
+                      })} 
                       alt={item.name} 
                       onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = "/logo-house.png";
+                        (e.currentTarget as HTMLImageElement).src = normalizeProductImageUrl(undefined, item.id, {
+                          name: item.name,
+                        });
                       }}
                       className="w-full h-full object-cover"
                     />
@@ -103,9 +111,23 @@ export function CartSheet() {
         {items.length > 0 && (
           <div className="p-6 bg-muted/30 border-t border-border">
             <div className="space-y-3 mb-6">
+              <div className="rounded-2xl border border-border bg-background/70 p-4">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-medium">Free shipping progress</span>
+                  <span className="text-muted-foreground">{shippingProgress.toFixed(0)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden mb-2">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${shippingProgress}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {amountUntilFreeShipping > 0
+                    ? `Add $${amountUntilFreeShipping.toFixed(2)} more to unlock free shipping.`
+                    : "Free shipping unlocked for this order."}
+                </p>
+              </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
-                <span>${totalPrice().toFixed(2)}</span>
+                <span>${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>Shipping</span>
@@ -114,7 +136,7 @@ export function CartSheet() {
               <Separator />
               <div className="flex justify-between font-display font-bold text-lg">
                 <span>Total</span>
-                <span>${totalPrice().toFixed(2)}</span>
+                <span>${subtotal.toFixed(2)}</span>
               </div>
             </div>
             

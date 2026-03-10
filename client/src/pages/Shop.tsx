@@ -9,7 +9,7 @@ import { useCategories } from "@/hooks/use-categories";
 import { useSeo } from "@/hooks/use-seo";
 
 export default function Shop() {
-  useSeo("Shop Products - UrugoBuy", "Browse fresh products with smart filters, sorting, and fast checkout.");
+  useSeo("Shop Products - UrugoBuy", "Browse fresh products with smart filters, sorting, and fast checkout.", { canonicalPath: "/shop" });
   const [location] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   
@@ -80,11 +80,36 @@ export default function Shop() {
     maxPrice !== "" ||
     sortBy !== "newest";
 
-  const pageSize = 9;
+  const pageSize = 12;
   const totalProducts = products?.length || 0;
   const totalPages = Math.max(1, Math.ceil(totalProducts / pageSize));
   const currentPage = Math.min(page, totalPages);
   const paginatedProducts = products?.slice((currentPage - 1) * pageSize, currentPage * pageSize) || [];
+  const quickFilters = [
+    {
+      label: "Featured",
+      active: showFeaturedOnly,
+      onClick: () => setShowFeaturedOnly((prev) => !prev),
+    },
+    {
+      label: "In Stock",
+      active: showInStockOnly,
+      onClick: () => setShowInStockOnly((prev) => !prev),
+    },
+    {
+      label: "Under $10",
+      active: minPrice === "" && maxPrice === "10",
+      onClick: () => {
+        setMinPrice("");
+        setMaxPrice(maxPrice === "10" && minPrice === "" ? "" : "10");
+      },
+    },
+    {
+      label: "Top Rated",
+      active: sortBy === "rating-desc",
+      onClick: () => setSortBy((prev) => (prev === "rating-desc" ? "newest" : "rating-desc")),
+    },
+  ];
 
   return (
     <div className="min-h-screen pt-24 pb-20 bg-background">
@@ -117,6 +142,23 @@ export default function Shop() {
               <option value="name-asc">Name: A to Z</option>
             </select>
           </div>
+        </div>
+
+        <div className="mb-8 flex flex-wrap gap-2">
+          {quickFilters.map((filter) => (
+            <button
+              key={filter.label}
+              type="button"
+              onClick={filter.onClick}
+              className={`rounded-full border px-4 py-2 text-sm transition ${
+                filter.active
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-background hover:bg-muted"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
         </div>
 
         <div className="flex flex-col md:flex-row gap-8 items-start">
@@ -307,6 +349,10 @@ export default function Shop() {
               </div>
             ) : (
               <>
+                <div className="mb-6 rounded-2xl border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  Showing {Math.min((currentPage - 1) * pageSize + 1, totalProducts)}-
+                  {Math.min(currentPage * pageSize, totalProducts)} of {totalProducts} products.
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {paginatedProducts.map((product) => (
                     <ProductCard key={product.id} product={product} />

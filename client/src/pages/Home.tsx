@@ -11,7 +11,11 @@ import { useSubscribeNewsletter } from "@/hooks/use-newsletter";
 import { useSeo } from "@/hooks/use-seo";
 
 export default function Home() {
-  useSeo("UrugoBuy - Fresh Fruits and Foods", "Shop fresh fruits and quality food essentials with fast delivery and secure checkout.");
+  useSeo(
+    "UrugoBuy - Fresh Fruits and Foods",
+    "Shop fresh fruits and quality food essentials with fast delivery, secure checkout, and trusted weekly grocery service.",
+    { canonicalPath: "/" },
+  );
   const { data: categories, isLoading: isCategoriesLoading } = useCategories();
   const { data: featuredProducts, isLoading: isProductsLoading } = useProducts({ featured: true });
   const { data: allProducts = [] } = useProducts();
@@ -98,6 +102,22 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="border-y border-border/60 bg-card/40">
+        <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-6 px-4 sm:px-6 lg:px-8 py-8">
+          {[
+            { value: "24h", label: "Fresh restock cycle" },
+            { value: "100+", label: "Products available" },
+            { value: "4.9/5", label: "Average customer rating" },
+            { value: "$100", label: "Free shipping threshold" },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl border border-border bg-background/80 px-5 py-4">
+              <p className="font-display text-3xl font-bold">{item.value}</p>
+              <p className="text-sm text-muted-foreground mt-1">{item.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Categories Section */}
       <section className="py-20 bg-background border-y border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -174,6 +194,40 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="py-20 bg-background border-t border-border/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
+            <div>
+              <h2 className="font-display text-3xl font-bold mb-2">Why Customers Trust UrugoBuy</h2>
+              <p className="text-muted-foreground max-w-2xl">
+                Built for repeat grocery buying with visible pricing, safer checkout, and delivery expectations users can understand.
+              </p>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                title: "Clear order totals",
+                body: "Customers see shipping, taxes, discounts, and totals before they place the order.",
+              },
+              {
+                title: "Reliable stock signals",
+                body: "Product pages and checkout both reflect stock availability so users avoid last-minute surprises.",
+              },
+              {
+                title: "Order tracking after purchase",
+                body: "Every completed order goes to a success page with item details, payment status, and fulfillment tracking.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-3xl border border-border bg-muted/20 p-6">
+                <h3 className="font-display text-2xl font-semibold mb-3">{item.title}</h3>
+                <p className="text-muted-foreground leading-relaxed">{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Recently Viewed */}
       {recentlyViewedProducts.length > 0 && (
         <section className="py-20 bg-background border-t border-border/50">
@@ -226,12 +280,12 @@ export default function Home() {
       </section>
 
       {/* Newsletter */}
-      <section className="py-24 bg-slate-900 text-white dark:bg-slate-950 dark:text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-white/15 to-transparent" />
+      <section className="py-24 premium-surface text-foreground relative overflow-hidden border-t border-border/50">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-primary/10 to-transparent" />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 relative text-center">
-          <Mail className="w-12 h-12 mx-auto mb-6 text-white/85" />
+          <Mail className="w-12 h-12 mx-auto mb-6 text-primary" />
           <h2 className="font-display text-4xl md:text-5xl font-bold mb-4">Join the Club</h2>
-          <p className="text-white/85 text-lg mb-10 max-w-xl mx-auto">
+          <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
             Subscribe to receive updates, access to exclusive deals, and more. We respect your inbox.
           </p>
           <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
@@ -241,13 +295,13 @@ export default function Home() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="h-14 rounded-full bg-white border-white/20 text-slate-900 placeholder:text-slate-500 focus-visible:ring-white/30 dark:bg-black/35 dark:border-white/35 dark:text-white dark:placeholder:text-white/70 dark:focus-visible:ring-white/50 backdrop-blur-sm"
+              className="h-14 rounded-full bg-background/90 border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary/25 backdrop-blur-sm"
             />
             <Button 
               type="submit" 
               size="lg" 
               disabled={subscribeMutation.isPending}
-              className="h-14 rounded-full px-8 bg-white text-slate-900 hover:bg-white/90 dark:bg-emerald-400 dark:text-slate-950 dark:hover:bg-emerald-300"
+              className="h-14 rounded-full px-8"
             >
               {subscribeMutation.isPending ? "Subscribing..." : "Subscribe"}
             </Button>

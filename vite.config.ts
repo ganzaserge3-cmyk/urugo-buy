@@ -24,6 +24,7 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "wouter": path.resolve(import.meta.dirname, "client", "src", "lib", "wouter-compat.tsx"),
     },
   },
   root: path.resolve(import.meta.dirname, "client"),

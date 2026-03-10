@@ -2,10 +2,12 @@ import crypto from "node:crypto";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { ensureCatalogSeeded } from "./catalog-bootstrap";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { db } from "./db";
 import { computeCouponDiscount, roundCurrency } from "./lib/pricing";
+import { signSessionToken, verifySessionToken } from "./lib/jwt";
 import {
   accountPreferences,
   blogPosts,
@@ -198,6 +200,8 @@ async function getSession(req: Request): Promise<SessionValue | null> {
     if (!idToken) return null;
     return verifyFirebaseIdToken(idToken);
   }
+  const jwtSession = verifySessionToken(token);
+  if (jwtSession) return jwtSession;
   return sessions.get(token) || null;
 }
 
@@ -364,19 +368,35 @@ async function getDeliverySlotsWithCapacity() {
 }
 
 async function ensureDefaultAdminUser() {
+  const adminEmail = (process.env.ADMIN_EMAIL || "ganzaserge3@gmail.com").toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || "GanzasergeAdmin2026!";
+  const adminName = process.env.ADMIN_NAME || "Ganzaserge";
+
   const [existing] = await db
     .select()
     .from(users)
-    .where(sql`LOWER(${users.email}) = ${"admin@urugobuy.com"}`)
+    .where(sql`LOWER(${users.email}) = ${adminEmail}`)
     .limit(1);
 
   if (!existing) {
     await db.insert(users).values({
-      name: "Admin",
-      email: "admin@urugobuy.com",
-      passwordHash: hashPassword("admin123"),
+      name: adminName,
+      email: adminEmail,
+      passwordHash: hashPassword(adminPassword),
       role: "admin",
     });
+    return;
+  }
+
+  if (existing.role !== "admin") {
+    await db
+      .update(users)
+      .set({
+        role: "admin",
+        name: existing.name || adminName,
+        passwordHash: hashPassword(adminPassword),
+      })
+      .where(eq(users.id, existing.id));
   }
 }
 
@@ -402,6 +422,7 @@ export async function registerRoutes(
   app: Express,
 ): Promise<Server> {
   await ensureDefaultAdminUser();
+  await ensureCatalogSeeded();
 
   app.use("/api/auth", createRateLimiter(20, 15 * 60 * 1000));
   app.use("/api/checkout/quote", createRateLimiter(60, 15 * 60 * 1000));
@@ -423,7 +444,6 @@ export async function registerRoutes(
       if (existing) {
         return res.status(400).json({ message: "Email already exists" });
       }
-
       const [created] = await db.insert(users).values({
         name: input.name,
         email: input.email,
@@ -431,8 +451,11 @@ export async function registerRoutes(
         role: "customer",
       }).returning();
 
-      const token = createToken();
-      sessions.set(token, { email: created.email, name: created.name, role: created.role as UserRole });
+      const token = signSessionToken({
+        email: created.email,
+        name: created.name,
+        role: created.role as UserRole,
+      });
       return res.status(201).json({
         token,
         user: { name: created.name, email: created.email, role: created.role },
@@ -461,8 +484,11 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      const token = createToken();
-      sessions.set(token, { email: user.email, name: user.name, role: user.role as UserRole });
+      const token = signSessionToken({
+        email: user.email,
+        name: user.name,
+        role: user.role as UserRole,
+      });
       return res.json({
         token,
         user: { name: user.name, email: user.email, role: user.role },
@@ -483,7 +509,7 @@ export async function registerRoutes(
 
   app.post("/api/auth/logout", async (req, res) => {
     const token = getToken(req);
-    if (token) sessions.delete(token);
+    if (token && !verifySessionToken(token)) sessions.delete(token);
     return res.json({ ok: true });
   });
 
@@ -573,6 +599,8 @@ export async function registerRoutes(
         .select({
           id: products.id,
           name: products.name,
+          price: products.price,
+          categoryId: products.categoryId,
         })
         .from(products)
         .where(ilike(products.name, `%${q}%`))
@@ -623,7 +651,6 @@ export async function registerRoutes(
       if (!Number.isFinite(productId) || productId <= 0) {
         return res.status(400).json({ message: "Invalid product ID" });
       }
-
       const [current] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
       if (!current) return res.status(404).json({ message: "Product not found" });
 
@@ -790,6 +817,11 @@ export async function registerRoutes(
       const session = await getSession(req);
       const productId = Number(req.params.productId);
       const input = z.object({ question: z.string().min(5).max(500) }).parse(req.body);
+      const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+
       const [row] = await db
         .insert(productQuestions)
         .values({
@@ -798,6 +830,7 @@ export async function registerRoutes(
           question: input.question,
         })
         .returning();
+
       return res.status(201).json(row);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -812,6 +845,9 @@ export async function registerRoutes(
       const session = await requireAdmin(req);
       const id = Number(req.params.id);
       const input = z.object({ answer: z.string().min(2).max(1000) }).parse(req.body);
+      const [existing] = await db.select().from(productQuestions).where(eq(productQuestions.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Question not found" });
+
       const [row] = await db
         .update(productQuestions)
         .set({
@@ -821,12 +857,36 @@ export async function registerRoutes(
         })
         .where(eq(productQuestions.id, id))
         .returning();
-      if (!row) return res.status(404).json({ message: "Question not found" });
+
       return res.json(row);
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
       if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/questions", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db
+        .select({
+          id: productQuestions.id,
+          productId: productQuestions.productId,
+          productName: products.name,
+          question: productQuestions.question,
+          answer: productQuestions.answer,
+          answeredAt: productQuestions.answeredAt,
+          createdAt: productQuestions.createdAt,
+        })
+        .from(productQuestions)
+        .innerJoin(products, eq(products.id, productQuestions.productId))
+        .orderBy(desc(productQuestions.createdAt), desc(productQuestions.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
       return res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -954,94 +1014,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/payments/create-intent", async (req, res) => {
-    try {
-      const input = z.object({
-        amount: z.number().positive(),
-        currency: z.string().default("usd"),
-        orderId: z.number().int().positive().optional(),
-      }).parse(req.body);
-
-      const stripeSecret = process.env.STRIPE_SECRET_KEY;
-      if (!stripeSecret) {
-        return res.status(400).json({ message: "STRIPE_SECRET_KEY is not configured" });
-      }
-
-      const body = new URLSearchParams();
-      body.set("amount", String(Math.round(input.amount * 100)));
-      body.set("currency", input.currency);
-      body.set("automatic_payment_methods[enabled]", "true");
-      if (input.orderId) {
-        body.set("metadata[orderId]", String(input.orderId));
-      }
-
-      const stripeRes = await fetch("https://api.stripe.com/v1/payment_intents", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecret}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: body.toString(),
-      });
-
-      const payload = await stripeRes.json();
-      if (!stripeRes.ok) {
-        return res.status(400).json({ message: payload?.error?.message || "Failed to create payment intent" });
-      }
-
-      return res.json({
-        provider: "stripe",
-        paymentIntentId: payload.id,
-        clientSecret: payload.client_secret,
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      return res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.post("/api/payments/webhook", async (req, res) => {
-    try {
-      const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      const signature = req.headers["stripe-signature"];
-      const rawBody = req.rawBody;
-
-      if (!stripeWebhookSecret) {
-        return res.status(400).json({ message: "STRIPE_WEBHOOK_SECRET is not configured" });
-      }
-      if (typeof signature !== "string" || !Buffer.isBuffer(rawBody)) {
-        return res.status(400).json({ message: "Invalid webhook payload" });
-      }
-
-      const valid = verifyStripeSignature(rawBody, signature, stripeWebhookSecret);
-      if (!valid) {
-        return res.status(400).json({ message: "Invalid webhook signature" });
-      }
-
-      const event = JSON.parse(rawBody.toString("utf8"));
-      const eventType = event.type as string | undefined;
-      const intent = event?.data?.object;
-      const orderId = Number(intent?.metadata?.orderId);
-      if (!Number.isFinite(orderId) || orderId <= 0) {
-        return res.json({ ok: true });
-      }
-
-      if (eventType === "payment_intent.succeeded") {
-        await db.update(orders).set({ status: "paid" }).where(eq(orders.id, orderId));
-        await db.update(orderMeta).set({ paymentStatus: "paid" }).where(eq(orderMeta.orderId, orderId));
-      } else if (eventType === "payment_intent.payment_failed") {
-        await db.update(orders).set({ status: "payment_failed" }).where(eq(orders.id, orderId));
-        await db.update(orderMeta).set({ paymentStatus: "failed" }).where(eq(orderMeta.orderId, orderId));
-      }
-
-      return res.json({ ok: true });
-    } catch {
-      return res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
   app.post(api.newsletter.subscribe.path, async (req, res) => {
     try {
       const input = api.newsletter.subscribe.input.parse(req.body);
@@ -1142,8 +1114,8 @@ export async function registerRoutes(
         giftCardCode: giftCard?.code,
         giftCardDiscount: giftCardDiscount.toFixed(2),
         deliverySlot: input.deliverySlot,
-        paymentMethod: input.paymentMethod || "card",
-        paymentStatus: input.paymentMethod === "cod" ? "paid" : "pending",
+        paymentMethod: input.paymentMethod || "cod",
+        paymentStatus: "pending",
       });
 
       await db.insert(notificationLogs).values({
@@ -1200,8 +1172,9 @@ export async function registerRoutes(
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: "Invalid order ID" });
 
-      const [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
-      if (!order) return res.status(404).json({ message: "Order not found" });
+      const orderData = await storage.getOrder(id);
+      if (!orderData) return res.status(404).json({ message: "Order not found" });
+      const order = orderData.order;
 
       const statusOrder = ["pending", "packed", "shipped", "delivered"];
       const currentIndex = Math.max(0, statusOrder.indexOf(order.status));
@@ -1962,6 +1935,23 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/account/support/tickets", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db
+        .select()
+        .from(supportTickets)
+        .where(eq(supportTickets.userEmail, session.email))
+        .orderBy(desc(supportTickets.createdAt), desc(supportTickets.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/returns/request", async (req, res) => {
     try {
       const session = await requireAuth(req);
@@ -2003,6 +1993,77 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/account/returns", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db
+        .select()
+        .from(returnRequests)
+        .where(eq(returnRequests.userEmail, session.email))
+        .orderBy(desc(returnRequests.createdAt), desc(returnRequests.id));
+      if (rows.length === 0) return res.json([]);
+
+      const events = await db
+        .select()
+        .from(returnStatusEvents)
+        .where(inArray(returnStatusEvents.returnRequestId, rows.map((row) => row.id)))
+        .orderBy(asc(returnStatusEvents.id));
+
+      return res.json(rows.map((row) => ({
+        ...row,
+        timeline: events.filter((event) => event.returnRequestId === row.id),
+      })));
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/account/notifications/subscriptions", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db
+        .select()
+        .from(notificationSubscriptions)
+        .where(eq(notificationSubscriptions.userEmail, session.email))
+        .orderBy(desc(notificationSubscriptions.createdAt), desc(notificationSubscriptions.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/account/notifications/subscriptions/:id", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid subscription ID" });
+      }
+
+      const row = (await db
+        .delete(notificationSubscriptions)
+        .where(and(eq(notificationSubscriptions.id, id), eq(notificationSubscriptions.userEmail, session.email)))
+        .returning())[0];
+
+      if (!row) {
+        return res.status(404).json({ message: "Notification subscription not found" });
+      }
+
+      return res.json({ ok: true, removedId: id });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/admin/products", async (req, res) => {
     try {
       await requireAdmin(req);
@@ -2033,7 +2094,6 @@ export async function registerRoutes(
         isFeatured: z.boolean().default(false),
         stockQuantity: z.number().int().nonnegative().default(0),
       }).parse(req.body);
-
       const [row] = await db.insert(products).values({
         ...input,
         price: input.price.toFixed(2),
@@ -2067,7 +2127,7 @@ export async function registerRoutes(
       const payload: Record<string, unknown> = { ...input };
       if (input.price !== undefined) payload.price = input.price.toFixed(2);
       if (input.rating !== undefined) payload.rating = input.rating.toFixed(1);
-      const [row] = await db.update(products).set(payload).where(eq(products.id, id)).returning();
+      const row = (await db.update(products).set(payload).where(eq(products.id, id)).returning())[0];
       if (!row) return res.status(404).json({ message: "Product not found" });
       return res.json(row);
     } catch (err) {
@@ -2082,7 +2142,7 @@ export async function registerRoutes(
     try {
       await requireAdmin(req);
       const id = Number(req.params.id);
-      const [row] = await db.delete(products).where(eq(products.id, id)).returning();
+      const row = (await db.delete(products).where(eq(products.id, id)).returning())[0];
       if (!row) return res.status(404).json({ message: "Product not found" });
       return res.json({ ok: true });
     } catch (err) {
@@ -2290,7 +2350,7 @@ export async function registerRoutes(
       const input = z.object({
         status: z.enum(["pending", "packed", "shipped", "delivered", "cancelled", "paid", "payment_failed"]),
       }).parse(req.body);
-      const [row] = await db.update(orders).set({ status: input.status }).where(eq(orders.id, id)).returning();
+      const row = (await db.update(orders).set({ status: input.status }).where(eq(orders.id, id)).returning())[0];
       if (!row) return res.status(404).json({ message: "Order not found" });
       await sendSmsOrWhatsApp(
         process.env.TWILIO_TO || "",

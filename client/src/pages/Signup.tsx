@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useSeo } from "@/hooks/use-seo";
 
 export default function Signup() {
+  useSeo("Sign Up - UrugoBuy", "Create a UrugoBuy account for faster checkout, tracking, referrals, and alerts.", { canonicalPath: "/signup" });
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { signup } = useAuth();
@@ -21,6 +23,14 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.password !== form.confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Passwords do not match",
+        description: "Please confirm the same password in both fields.",
+      });
+      return;
+    }
     setIsLoading(true);
     try {
       await signup(form);
@@ -86,6 +96,10 @@ export default function Signup() {
             Sign in
           </Link>
         </p>
+        <div className="mt-6 rounded-2xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground space-y-1">
+          <p>Create an account to track orders, redeem referrals, manage alerts, and speed up future checkout.</p>
+          <p>Password match: <span className={form.password && form.confirmPassword && form.password === form.confirmPassword ? "text-green-600" : "text-muted-foreground"}>{form.password && form.confirmPassword ? (form.password === form.confirmPassword ? "Confirmed" : "Not matched yet") : "Enter and confirm your password"}</span></p>
+        </div>
       </div>
     </div>
   );
