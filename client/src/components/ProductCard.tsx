@@ -7,6 +7,7 @@ import type { Product } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
 import { normalizeProductImageUrl } from "@/lib/images";
+import { useI18n } from "@/lib/i18n";
 
 interface ProductCardProps {
   product: Product;
@@ -15,6 +16,7 @@ interface ProductCardProps {
 export function ProductCard({ product }: ProductCardProps) {
   const { addItem } = useCart();
   const { toast } = useToast();
+  const { t, formatCurrency, formatNumber } = useI18n();
   const isOutOfStock = product.stockQuantity <= 0;
   const imageContext = {
     categoryId: product.categoryId,
@@ -33,15 +35,15 @@ export function ProductCard({ product }: ProductCardProps) {
     if (isOutOfStock) {
       toast({
         variant: "destructive",
-        title: "Out of stock",
-        description: `${product.name} is currently unavailable.`,
+        title: t("product.outOfStock"),
+        description: t("product.unavailable", { name: product.name }),
       });
       return;
     }
     addItem(product);
     toast({
-      title: "Added to Cart",
-      description: `${product.name} has been added to your cart.`,
+      title: t("product.addedToCart"),
+      description: t("product.addedToCartSingle", { name: product.name }),
     });
   };
 
@@ -64,12 +66,12 @@ export function ProductCard({ product }: ProductCardProps) {
         />
         {product.isFeatured && (
           <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-primary text-primary-foreground text-[10px] sm:text-xs font-bold px-2 py-1 sm:px-3 rounded-full">
-            Featured
+            {t("product.featured")}
           </div>
         )}
         {isOutOfStock && (
           <div className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-destructive text-destructive-foreground text-[10px] sm:text-xs font-bold px-2 py-1 sm:px-3 rounded-full">
-            Out of stock
+            {t("product.outOfStock")}
           </div>
         )}
       </Link>
@@ -78,7 +80,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="flex items-center space-x-1 mb-1.5 sm:mb-2">
           <Star className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-accent text-accent" />
           <span className="text-xs sm:text-sm font-medium text-muted-foreground">
-            {Number(product.rating).toFixed(1)}
+            {formatNumber(product.rating)}
           </span>
         </div>
         
@@ -89,12 +91,12 @@ export function ProductCard({ product }: ProductCardProps) {
         </Link>
         
         <p className="text-muted-foreground text-xs sm:text-sm mt-1 line-clamp-2 mb-3 sm:mb-4 flex-grow">
-          {product.description || "Fresh and quality product from our store."}
+          {product.description || t("product.fallbackDescription")}
         </p>
         
         <div className="flex items-center justify-between mt-auto pt-3 sm:pt-4 border-t border-border/50">
           <span className="font-display font-bold text-lg sm:text-xl text-foreground">
-            ${Number(product.price).toFixed(2)}
+            {formatCurrency(product.price)}
           </span>
           <Button 
             onClick={handleAddToCart} 
@@ -103,7 +105,7 @@ export function ProductCard({ product }: ProductCardProps) {
             className="rounded-full h-8 sm:h-9 px-3 sm:px-5 text-xs sm:text-sm font-medium transition-transform active:scale-95"
           >
             <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
-            Add
+            {t("product.add")}
           </Button>
         </div>
       </div>

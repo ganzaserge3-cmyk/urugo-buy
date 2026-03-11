@@ -99,6 +99,10 @@ export function useAccountOrders() {
         total: string;
         status: string;
         createdAt: string;
+        marketCountry?: string;
+        currencyCode?: string;
+        currencySymbol?: string;
+        exchangeRate?: string | number;
       }>>;
     },
     enabled: !!token,

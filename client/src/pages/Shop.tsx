@@ -7,9 +7,11 @@ import { ProductCard } from "@/components/ProductCard";
 import { useProducts } from "@/hooks/use-products";
 import { useCategories } from "@/hooks/use-categories";
 import { useSeo } from "@/hooks/use-seo";
+import { useI18n } from "@/lib/i18n";
 
 export default function Shop() {
-  useSeo("Shop Products - UrugoBuy", "Browse fresh products with smart filters, sorting, and fast checkout.", { canonicalPath: "/shop" });
+  const { t, formatCurrency } = useI18n();
+  useSeo(t("shop.metaTitle"), t("shop.metaDescription"), { canonicalPath: "/shop" });
   const [location] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   
@@ -87,17 +89,17 @@ export default function Shop() {
   const paginatedProducts = products?.slice((currentPage - 1) * pageSize, currentPage * pageSize) || [];
   const quickFilters = [
     {
-      label: "Featured",
+      label: t("shop.quickFeatured"),
       active: showFeaturedOnly,
       onClick: () => setShowFeaturedOnly((prev) => !prev),
     },
     {
-      label: "In Stock",
+      label: t("shop.quickStock"),
       active: showInStockOnly,
       onClick: () => setShowInStockOnly((prev) => !prev),
     },
     {
-      label: "Under $10",
+      label: t("shop.quickUnder", { amount: formatCurrency(10) }),
       active: minPrice === "" && maxPrice === "10",
       onClick: () => {
         setMinPrice("");
@@ -105,7 +107,7 @@ export default function Shop() {
       },
     },
     {
-      label: "Top Rated",
+      label: t("shop.quickTopRated"),
       active: sortBy === "rating-desc",
       onClick: () => setSortBy((prev) => (prev === "rating-desc" ? "newest" : "rating-desc")),
     },
@@ -117,29 +119,29 @@ export default function Shop() {
         
         {/* Header */}
         <div className="mb-10 text-center md:text-left">
-          <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">All Products</h1>
+          <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">{t("shop.title")}</h1>
           <p className="text-muted-foreground text-lg max-w-2xl">
-            Explore our complete collection of fresh fruits and daily food essentials.
+            {t("shop.subtitle")}
           </p>
         </div>
 
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            {isLoading ? "Loading products..." : `${totalProducts} product${totalProducts === 1 ? "" : "s"} found`}
+            {isLoading ? t("shop.loadingProducts") : totalProducts === 1 ? t("shop.productFound", { count: totalProducts }) : t("shop.productsFound", { count: totalProducts })}
           </p>
           <div className="inline-flex items-center gap-2">
-            <label htmlFor="sortBy" className="text-sm text-muted-foreground">Sort</label>
+            <label htmlFor="sortBy" className="text-sm text-muted-foreground">{t("shop.sort")}</label>
             <select
               id="sortBy"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "newest" | "price-asc" | "price-desc" | "rating-desc" | "name-asc")}
               className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
             >
-              <option value="newest">Newest</option>
-              <option value="price-asc">Price: Low to High</option>
-              <option value="price-desc">Price: High to Low</option>
-              <option value="rating-desc">Top Rated</option>
-              <option value="name-asc">Name: A to Z</option>
+              <option value="newest">{t("shop.sortNewest")}</option>
+              <option value="price-asc">{t("shop.sortPriceAsc")}</option>
+              <option value="price-desc">{t("shop.sortPriceDesc")}</option>
+              <option value="rating-desc">{t("shop.sortRating")}</option>
+              <option value="name-asc">{t("shop.sortName")}</option>
             </select>
           </div>
         </div>
@@ -167,7 +169,7 @@ export default function Shop() {
           <div className="w-full md:hidden flex gap-2">
             <div className="relative flex-1">
               <Input
-                placeholder="Search..."
+                placeholder={t("shop.searchShort")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 rounded-full bg-muted/50 border-transparent"
@@ -180,7 +182,7 @@ export default function Shop() {
               className="rounded-full px-4 shrink-0"
             >
               <SlidersHorizontal className="w-4 h-4 mr-2" />
-              Filters
+              {t("shop.filters")}
             </Button>
           </div>
 
@@ -190,7 +192,7 @@ export default function Shop() {
             {/* Desktop Search */}
             <div className="hidden md:block relative">
               <Input
-                placeholder="Search products..."
+                placeholder={t("shop.searchProducts")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 rounded-xl bg-muted/30 border-border"
@@ -200,10 +202,10 @@ export default function Shop() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-display font-semibold text-lg">Categories</h3>
+                <h3 className="font-display font-semibold text-lg">{t("shop.categories")}</h3>
                 {hasActiveFilters && (
                   <button onClick={clearFilters} className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                    Clear all
+                    {t("shop.clearAll")}
                   </button>
                 )}
               </div>
@@ -214,7 +216,7 @@ export default function Shop() {
                     activeCategory === undefined ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted text-muted-foreground"
                   }`}
                 >
-                  All Categories
+                  {t("shop.allCategories")}
                 </button>
                 {categories?.map(category => (
                   <button
@@ -231,7 +233,7 @@ export default function Shop() {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-display font-semibold text-lg">Collections</h3>
+              <h3 className="font-display font-semibold text-lg">{t("shop.collections")}</h3>
               <div className="flex flex-col space-y-2">
                 <label className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors">
                   <input 
@@ -240,7 +242,7 @@ export default function Shop() {
                     onChange={(e) => setShowFeaturedOnly(e.target.checked)}
                     className="rounded border-border text-primary focus:ring-primary h-4 w-4"
                   />
-                  <span className="text-sm font-medium">Featured Only</span>
+                  <span className="text-sm font-medium">{t("shop.featuredOnly")}</span>
                 </label>
                 <label className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors">
                   <input
@@ -249,18 +251,18 @@ export default function Shop() {
                     onChange={(e) => setShowInStockOnly(e.target.checked)}
                     className="rounded border-border text-primary focus:ring-primary h-4 w-4"
                   />
-                  <span className="text-sm font-medium">In Stock Only</span>
+                  <span className="text-sm font-medium">{t("shop.inStockOnly")}</span>
                 </label>
               </div>
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-display font-semibold text-lg">Price Range</h3>
+              <h3 className="font-display font-semibold text-lg">{t("shop.priceRange")}</h3>
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="number"
                   min={0}
-                  placeholder="Min"
+                  placeholder={t("shop.min")}
                   value={minPrice}
                   onChange={(e) => setMinPrice(e.target.value)}
                   className="rounded-lg bg-muted/30 border-border"
@@ -268,7 +270,7 @@ export default function Shop() {
                 <Input
                   type="number"
                   min={0}
-                  placeholder="Max"
+                  placeholder={t("shop.max")}
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(e.target.value)}
                   className="rounded-lg bg-muted/30 border-border"
@@ -284,37 +286,37 @@ export default function Shop() {
               <div className="flex flex-wrap gap-2 mb-6 hidden md:flex">
                 {activeCategory !== undefined && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    {categories?.find(c => c.id === activeCategory)?.name || 'Category'}
+                    {categories?.find(c => c.id === activeCategory)?.name || t("shop.categoryTag")}
                     <button onClick={() => setActiveCategory(undefined)} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
                 {showFeaturedOnly && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    Featured
+                    {t("shop.quickFeatured")}
                     <button onClick={() => setShowFeaturedOnly(false)} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
                 {showInStockOnly && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    In Stock
+                    {t("shop.quickStock")}
                     <button onClick={() => setShowInStockOnly(false)} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
                 {minPrice !== "" && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    Min ${minPrice}
+                    {t("shop.minTag", { amount: formatCurrency(minPrice) })}
                     <button onClick={() => setMinPrice("")} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
                 {maxPrice !== "" && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    Max ${maxPrice}
+                    {t("shop.maxTag", { amount: formatCurrency(maxPrice) })}
                     <button onClick={() => setMaxPrice("")} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
                 {sortBy !== "newest" && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium border border-border">
-                    Sort: {sortBy}
+                    {t("shop.sortTag", { value: sortBy })}
                     <button onClick={() => setSortBy("newest")} className="ml-2 hover:text-destructive"><X className="w-3 h-3"/></button>
                   </span>
                 )}
@@ -335,23 +337,26 @@ export default function Shop() {
               </div>
             ) : isError ? (
               <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-border rounded-3xl bg-muted/10">
-                <h3 className="font-display text-xl font-medium mb-2">Could not load products</h3>
-                <p className="text-muted-foreground mb-6">Please refresh the page or try again in a moment.</p>
+                <h3 className="font-display text-xl font-medium mb-2">{t("shop.loadError")}</h3>
+                <p className="text-muted-foreground mb-6">{t("shop.loadErrorBody")}</p>
               </div>
             ) : totalProducts === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-border rounded-3xl bg-muted/10">
                 <Search className="w-12 h-12 text-muted-foreground mb-4 opacity-20" />
-                <h3 className="font-display text-xl font-medium mb-2">No products found</h3>
-                <p className="text-muted-foreground mb-6">Try adjusting your filters or search query.</p>
+                <h3 className="font-display text-xl font-medium mb-2">{t("shop.noneFound")}</h3>
+                <p className="text-muted-foreground mb-6">{t("shop.noneFoundBody")}</p>
                 <Button variant="outline" onClick={clearFilters} className="rounded-full">
-                  Clear Filters
+                  {t("shop.clearFilters")}
                 </Button>
               </div>
             ) : (
               <>
                 <div className="mb-6 rounded-2xl border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                  Showing {Math.min((currentPage - 1) * pageSize + 1, totalProducts)}-
-                  {Math.min(currentPage * pageSize, totalProducts)} of {totalProducts} products.
+                  {t("shop.showingRange", {
+                    start: Math.min((currentPage - 1) * pageSize + 1, totalProducts),
+                    end: Math.min(currentPage * pageSize, totalProducts),
+                    total: totalProducts,
+                  })}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {paginatedProducts.map((product) => (
@@ -366,10 +371,10 @@ export default function Shop() {
                       disabled={currentPage === 1}
                       className="rounded-full"
                     >
-                      Previous
+                      {t("shop.previous")}
                     </Button>
                     <span className="text-sm text-muted-foreground px-2">
-                      Page {currentPage} of {totalPages}
+                      {t("shop.pageOf", { page: currentPage, total: totalPages })}
                     </span>
                     <Button
                       variant="outline"
@@ -377,7 +382,7 @@ export default function Shop() {
                       disabled={currentPage === totalPages}
                       className="rounded-full"
                     >
-                      Next
+                      {t("shop.next")}
                     </Button>
                   </div>
                 )}

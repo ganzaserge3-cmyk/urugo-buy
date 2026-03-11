@@ -267,6 +267,10 @@ export const orderMeta = pgTable("order_meta", {
   deliverySlot: text("delivery_slot"),
   paymentMethod: text("payment_method"),
   paymentStatus: text("payment_status"),
+  marketCountry: text("market_country"),
+  currencyCode: text("currency_code"),
+  currencySymbol: text("currency_symbol"),
+  exchangeRate: numeric("exchange_rate", { precision: 12, scale: 6 }),
 });
 
 export const giftCards = pgTable("gift_cards", {

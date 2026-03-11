@@ -12,9 +12,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCart } from "@/hooks/use-cart";
 import { Separator } from "@/components/ui/separator";
 import { normalizeProductImageUrl } from "@/lib/images";
+import { useI18n } from "@/lib/i18n";
 
 export function CartSheet() {
   const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, clearCart } = useCart();
+  const { t, formatCurrency } = useI18n();
   const subtotal = totalPrice();
   const freeShippingThreshold = 100;
   const amountUntilFreeShipping = Math.max(0, freeShippingThreshold - subtotal);
@@ -28,7 +30,7 @@ export function CartSheet() {
         <SheetHeader className="p-6 border-b border-border text-left">
           <SheetTitle className="font-display flex items-center">
             <ShoppingBag className="w-5 h-5 mr-2" />
-            Your Cart ({items.length})
+            {t("cart.title", { count: items.length })}
           </SheetTitle>
         </SheetHeader>
 
@@ -38,12 +40,12 @@ export function CartSheet() {
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
                 <ShoppingBag className="w-8 h-8 text-muted-foreground" />
               </div>
-              <h3 className="font-display text-lg font-medium mb-2">Your cart is empty</h3>
+              <h3 className="font-display text-lg font-medium mb-2">{t("cart.emptyTitle")}</h3>
               <p className="text-muted-foreground mb-6 text-sm">
-                Looks like you haven't added anything yet.
+                {t("cart.emptyBody")}
               </p>
               <Button onClick={() => setIsOpen(false)} asChild className="rounded-full">
-                <Link href="/shop">Start Shopping</Link>
+                <Link href="/shop">{t("cart.startShopping")}</Link>
               </Button>
             </div>
           ) : (
@@ -77,7 +79,7 @@ export function CartSheet() {
                     </div>
                     
                     <span className="font-display font-semibold mt-1">
-                      ${Number(item.price).toFixed(2)}
+                      {formatCurrency(item.price)}
                     </span>
                     
                     <div className="flex items-center space-x-3 mt-auto">
@@ -113,7 +115,7 @@ export function CartSheet() {
             <div className="space-y-3 mb-6">
               <div className="rounded-2xl border border-border bg-background/70 p-4">
                 <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="font-medium">Free shipping progress</span>
+                  <span className="font-medium">{t("cart.freeShippingProgress")}</span>
                   <span className="text-muted-foreground">{shippingProgress.toFixed(0)}%</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden mb-2">
@@ -121,29 +123,29 @@ export function CartSheet() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {amountUntilFreeShipping > 0
-                    ? `Add $${amountUntilFreeShipping.toFixed(2)} more to unlock free shipping.`
-                    : "Free shipping unlocked for this order."}
+                    ? t("cart.addMore", { amount: formatCurrency(amountUntilFreeShipping) })
+                    : t("cart.unlocked")}
                 </p>
               </div>
               <div className="flex justify-between text-muted-foreground">
-                <span>Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{t("cart.subtotal")}</span>
+                <span>{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
-                <span>Shipping</span>
-                <span>Calculated at checkout</span>
+                <span>{t("cart.shipping")}</span>
+                <span>{t("cart.shippingAtCheckout")}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-display font-bold text-lg">
-                <span>Total</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{t("cart.total")}</span>
+                <span>{formatCurrency(subtotal)}</span>
               </div>
             </div>
             
             <div className="space-y-3">
               <Button className="w-full rounded-full py-6 text-base" size="lg" asChild>
                 <Link href="/checkout" onClick={() => setIsOpen(false)}>
-                Proceed to Checkout
+                {t("cart.checkout")}
                 </Link>
               </Button>
               <Button 
@@ -154,7 +156,7 @@ export function CartSheet() {
                   setIsOpen(false);
                 }}
               >
-                Clear Cart
+                {t("cart.clear")}
               </Button>
             </div>
           </div>

@@ -15,6 +15,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { useSeo } from "@/hooks/use-seo";
 import { authFetch } from "@/lib/auth";
 import { buildProductImageGallery, normalizeProductImageUrl } from "@/lib/images";
+import { useI18n } from "@/lib/i18n";
 
 export default function ProductDetail() {
   const params = useParams();
@@ -24,6 +25,7 @@ export default function ProductDetail() {
   const { data: bundles = [] } = useBundleSuggestions(id);
   const { addItem } = useCart();
   const { toast } = useToast();
+  const { t, formatCurrency, formatNumber, formatDateTime } = useI18n();
   const { user } = useAuth();
   const isOutOfStock = product ? product.stockQuantity <= 0 : false;
   const [imageSrc, setImageSrc] = useState<string>("");
@@ -137,8 +139,8 @@ export default function ProductDetail() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center pt-20 text-center px-4">
         <h1 className="font-display text-4xl font-bold mb-4">Product Not Found</h1>
-        <p className="text-muted-foreground mb-8">The product you're looking for doesn't exist or has been removed.</p>
-        <Button asChild className="rounded-full"><Link href="/shop">Back to Shop</Link></Button>
+        <p className="text-muted-foreground mb-8">{t("product.notFound")}</p>
+        <Button asChild className="rounded-full"><Link href="/shop">{t("product.backToShop")}</Link></Button>
       </div>
     );
   }
@@ -147,15 +149,15 @@ export default function ProductDetail() {
     if (isOutOfStock) {
       toast({
         variant: "destructive",
-        title: "Out of stock",
-        description: `${product.name} is currently unavailable.`,
+        title: t("product.outOfStock"),
+        description: t("product.unavailable", { name: product.name }),
       });
       return;
     }
     addItem(product, quantity);
     toast({
-      title: "Added to Cart",
-      description: `${quantity} x ${product.name} added to your cart.`,
+      title: t("product.addedToCart"),
+      description: t("product.addedToCartBody", { quantity, name: product.name }),
     });
   };
 
@@ -164,7 +166,7 @@ export default function ProductDetail() {
   const handleToggleWishlist = async () => {
     try {
       await toggleWishlist.mutateAsync({ productId: product.id, inWishlist });
-      toast({ title: inWishlist ? "Removed from wishlist" : "Added to wishlist" });
+      toast({ title: inWishlist ? t("product.removedFromWishlist") : t("product.addedToWishlist") });
     } catch (error) {
       toast({
         variant: "destructive",
@@ -176,7 +178,7 @@ export default function ProductDetail() {
 
   const handleWatchAlert = async () => {
     if (!user) {
-      toast({ variant: "destructive", title: "Login required", description: "Please login to track product alerts." });
+      toast({ variant: "destructive", title: t("product.loginRequired"), description: t("product.trackAlertsLogin") });
       return;
     }
     try {
@@ -187,7 +189,7 @@ export default function ProductDetail() {
         notifyOnPriceDrop: true,
         notifyOnRestock: true,
       });
-      toast({ title: "Alert saved", description: "You will be notified on price drops or restock." });
+      toast({ title: t("product.alertSaved"), description: t("product.alertSavedBody") });
       setAlertTargetPrice("");
     } catch (error) {
       toast({
@@ -211,7 +213,7 @@ export default function ProductDetail() {
       setReviewRating(5);
       setReviewPhotoUrl("");
       setReviewVideoUrl("");
-      toast({ title: "Review submitted" });
+      toast({ title: t("product.reviewSubmitted") });
     } catch (error) {
       toast({
         variant: "destructive",
@@ -296,7 +298,7 @@ export default function ProductDetail() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         <Link href="/shop" className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground mb-8 transition-colors">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Shop
+          <ArrowLeft className="w-4 h-4 mr-2" /> {t("product.backToShop")}
         </Link>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20">
@@ -371,7 +373,7 @@ export default function ProductDetail() {
           <div className="flex flex-col justify-center">
             {product.isFeatured && (
               <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-primary text-primary-foreground mb-4 w-max">
-                <Star className="w-3 h-3 mr-1 fill-current" /> Featured Product
+                <Star className="w-3 h-3 mr-1 fill-current" /> {t("product.featuredBadge")}
               </div>
             )}
             
@@ -382,20 +384,20 @@ export default function ProductDetail() {
             <div className="flex items-center mb-6">
               <div className="flex items-center mr-4">
                 <Star className="w-5 h-5 fill-accent text-accent" />
-                <span className="ml-1.5 font-medium">{Number(product.rating).toFixed(1)} Rating</span>
+                <span className="ml-1.5 font-medium">{formatNumber(product.rating)} {t("product.rating")}</span>
               </div>
               <span className="text-muted-foreground text-sm">|</span>
               <span className="ml-4 text-muted-foreground text-sm">
-                {isOutOfStock ? "Out of Stock" : `${product.stockQuantity} in stock`}
+                {isOutOfStock ? t("product.outOfStock") : t("product.inStock", { count: product.stockQuantity })}
               </span>
             </div>
             
             <div className="font-display text-3xl font-bold mb-8 text-primary">
-              ${Number(product.price).toFixed(2)}
+              {formatCurrency(product.price)}
             </div>
             
             <p className="text-lg text-muted-foreground leading-relaxed mb-8 border-b border-border pb-8">
-              {product.description || "Fresh and quality product from our store."}
+              {product.description || t("product.fallbackDescription")}
             </p>
             <div className="grid sm:grid-cols-2 gap-3 mb-6">
               <div>
@@ -467,11 +469,11 @@ export default function ProductDetail() {
             
             <Button onClick={handleAddToCart} size="lg" disabled={isOutOfStock} className="w-full h-14 rounded-full text-lg shadow-lg shadow-primary/20 transition-all hover:-translate-y-1 active:translate-y-0">
               <ShoppingBag className="w-5 h-5 mr-2" />
-              {isOutOfStock ? "Out of Stock" : "Add to Cart"}
+              {isOutOfStock ? t("product.outOfStock") : t("product.addToCart")}
             </Button>
             <Button onClick={handleToggleWishlist} variant="outline" size="lg" className="w-full h-12 rounded-full mt-3">
               <Heart className={`w-5 h-5 mr-2 ${inWishlist ? "fill-current" : ""}`} />
-              {inWishlist ? "Remove from Wishlist" : "Add to Wishlist"}
+              {inWishlist ? t("product.removeFromWishlist") : t("product.addToWishlist")}
             </Button>
             <Button onClick={toggleCompare} variant="outline" size="lg" className="w-full h-12 rounded-full mt-3">
               {inCompare ? "Remove from Compare" : "Add to Compare"}
@@ -558,7 +560,7 @@ export default function ProductDetail() {
                       <span className="text-xs rounded-full bg-muted px-2 py-1">Unverified</span>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">Rating: {review.rating}/5</p>
+                  <p className="text-sm text-muted-foreground">{t("product.rating")}: {formatNumber(review.rating)}/5</p>
                   <p className="mt-2">{review.comment}</p>
                   {review.photoUrl && (
                     <img src={review.photoUrl} alt="Review upload" className="mt-3 h-24 w-24 rounded-md object-cover border border-border" />
@@ -601,7 +603,7 @@ export default function ProductDetail() {
                       <p className="font-medium mb-1">Store reply</p>
                       <p>{item.answer}</p>
                       <p className="text-xs mt-2 text-muted-foreground">
-                        {item.answeredAt ? `Answered on ${new Date(item.answeredAt).toLocaleString()}` : "Answered"}
+                        {item.answeredAt ? t("product.answeredOn", { date: formatDateTime(item.answeredAt) }) : t("product.answered")}
                       </p>
                     </div>
                   ) : (
@@ -639,8 +641,8 @@ export default function ProductDetail() {
                   {compared.map((row: { id: number; name: string; price: string; rating: string; stockQuantity: number }) => (
                     <tr key={row.id} className="border-t border-border">
                       <td className="p-3">{row.name}</td>
-                      <td className="p-3">${Number(row.price).toFixed(2)}</td>
-                      <td className="p-3">{Number(row.rating).toFixed(1)}</td>
+                      <td className="p-3">{formatCurrency(row.price)}</td>
+                      <td className="p-3">{formatNumber(row.rating)}</td>
                       <td className="p-3">{row.stockQuantity}</td>
                     </tr>
                   ))}

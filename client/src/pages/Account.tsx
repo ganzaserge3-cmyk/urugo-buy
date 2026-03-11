@@ -16,6 +16,8 @@ import { authFetch } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/hooks/use-seo";
 import { useCreateWishlistShare } from "@/hooks/use-wishlist";
+import { useI18n } from "@/lib/i18n";
+import { formatOrderMoney } from "@/lib/order-pricing";
 
 const defaultPreferences: AccountPreferences = {
   priceDropAlerts: true,
@@ -25,7 +27,8 @@ const defaultPreferences: AccountPreferences = {
 };
 
 export default function Account() {
-  useSeo("My Account - UrugoBuy", "Manage loyalty, referrals, alerts, returns, support, and security settings.", { canonicalPath: "/account", robots: "noindex,follow" });
+  const { t, formatCurrency, formatDateTime } = useI18n();
+  useSeo(t("account.metaTitle"), t("account.metaDescription"), { canonicalPath: "/account", robots: "noindex,follow" });
   const { user, token } = useAuth();
   const { toast } = useToast();
   const { data: summary, refetch: refetchSummary } = useAccountSummary();
@@ -43,7 +46,7 @@ export default function Account() {
   const [returnReason, setReturnReason] = useState("");
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "bot"; text: string }>>([
-    { role: "bot", text: "Hi. How can I help with your order today?" },
+    { role: "bot", text: t("account.chat.welcome") },
   ]);
   const [wishlistShareLink, setWishlistShareLink] = useState("");
   const [referralInput, setReferralInput] = useState("");
@@ -102,10 +105,10 @@ export default function Account() {
     return (
       <div className="min-h-screen pt-24 px-4 pb-20">
         <div className="max-w-3xl mx-auto border border-border rounded-2xl p-8 text-center bg-card">
-          <h1 className="font-display text-4xl font-bold mb-3">Sign in to access your account</h1>
-          <p className="text-muted-foreground mb-6">Manage loyalty, alerts, reorders, and support from one place.</p>
+          <h1 className="font-display text-4xl font-bold mb-3">{t("account.signInTitle")}</h1>
+          <p className="text-muted-foreground mb-6">{t("account.signInBody")}</p>
           <Button asChild className="rounded-full">
-            <Link href="/login">Go to Login</Link>
+            <Link href="/login">{t("account.goToLogin")}</Link>
           </Button>
         </div>
       </div>
@@ -117,18 +120,18 @@ export default function Account() {
       if (localPrefs.twoFactorEnabled && !twoFactorVerified) {
         toast({
           variant: "destructive",
-          title: "2FA verification required",
-          description: "Send and verify your 2FA code before saving.",
+          title: t("account.toast.2faRequired"),
+          description: t("account.toast.2faRequiredBody"),
         });
         return;
       }
       await savePreferences.mutateAsync(localPrefs);
-      toast({ title: "Preferences saved" });
+      toast({ title: t("account.toast.preferencesSaved") });
       await refetchSummary();
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Save failed",
+        title: t("account.toast.saveFailed"),
         description: error instanceof Error ? error.message : "Please try again",
       });
     }
@@ -138,10 +141,10 @@ export default function Account() {
     const res = await authFetch(`/api/account/reorder/${orderId}`, { method: "POST" });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Reorder failed" }));
-      toast({ variant: "destructive", title: "Reorder failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.reorderFailed"), description: payload.message });
       return;
     }
-    toast({ title: "Reorder created", description: "A new order was created from this order." });
+    toast({ title: t("account.toast.reorderCreated"), description: t("account.toast.reorderCreatedBody") });
     await refetchOrders();
     await refetchSummary();
   };
@@ -155,12 +158,12 @@ export default function Account() {
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Failed to submit ticket" }));
-      toast({ variant: "destructive", title: "Ticket failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.ticketFailed"), description: payload.message });
       return;
     }
     setSupportTopic("");
     setSupportMessage("");
-    toast({ title: "Support ticket submitted" });
+    toast({ title: t("account.toast.ticketSubmitted") });
     const rows = await authFetch("/api/account/support/tickets").then((r) => (r.ok ? r.json() : []));
     setSupportTickets(Array.isArray(rows) ? rows : []);
   };
@@ -175,12 +178,12 @@ export default function Account() {
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Return request failed" }));
-      toast({ variant: "destructive", title: "Return failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.returnFailed"), description: payload.message });
       return;
     }
     setReturnOrderId("");
     setReturnReason("");
-    toast({ title: "Return request submitted" });
+    toast({ title: t("account.toast.returnSubmitted") });
     const rows = await authFetch("/api/account/returns").then((r) => (r.ok ? r.json() : []));
     setReturnsHistory(Array.isArray(rows) ? rows : []);
   };
@@ -202,12 +205,12 @@ export default function Account() {
       setSupportTickets(Array.isArray(rows) ? rows : []);
       setChatMessages((prev) => [
         ...prev,
-        { role: "bot", text: "Message received. We turned this into a support ticket so the team can follow up properly." },
+        { role: "bot", text: t("account.chat.ticketCreated") },
       ]);
     } catch {
       setChatMessages((prev) => [
         ...prev,
-        { role: "bot", text: "Message saved locally, but support could not be reached right now. Please try again shortly." },
+        { role: "bot", text: t("account.chat.unavailable") },
       ]);
     }
   };
@@ -216,11 +219,11 @@ export default function Account() {
     try {
       const payload = await createWishlistShare.mutateAsync();
       setWishlistShareLink(`${siteBaseUrl}/wishlist/${payload.token}`);
-      toast({ title: "Share link generated", description: `Valid until ${new Date(payload.expiresAt).toLocaleString()}` });
+      toast({ title: t("account.toast.shareGenerated"), description: t("account.toast.validUntil", { date: formatDateTime(payload.expiresAt) }) });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Share link failed",
+        title: t("account.toast.shareFailed"),
         description: error instanceof Error ? error.message : "Try again",
       });
     }
@@ -234,12 +237,12 @@ export default function Account() {
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Failed to send code" }));
-      toast({ variant: "destructive", title: "2FA send failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.2faSendFailed"), description: payload.message });
       return;
     }
     const payload = await res.json();
     const debugCode = payload.debugCode ? ` (Dev code: ${payload.debugCode})` : "";
-    toast({ title: "2FA code sent", description: `Check your email for the code.${debugCode}` });
+    toast({ title: t("account.toast.2faCodeSent"), description: t("account.toast.checkEmail", { debug: debugCode }) });
   };
 
   const handleVerifyTwoFactor = async () => {
@@ -250,12 +253,12 @@ export default function Account() {
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Verification failed" }));
-      toast({ variant: "destructive", title: "2FA verification failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.2faVerifyFailed"), description: payload.message });
       setTwoFactorVerified(false);
       return;
     }
     setTwoFactorVerified(true);
-    toast({ title: "2FA verified" });
+    toast({ title: t("account.toast.2faVerified") });
   };
 
   const createSubscription = async () => {
@@ -267,7 +270,7 @@ export default function Account() {
     if (res.ok) {
       const rows = await authFetch("/api/subscriptions").then((r) => (r.ok ? r.json() : []));
       setSubscriptions(Array.isArray(rows) ? rows : []);
-      toast({ title: "Subscription created" });
+      toast({ title: t("account.toast.subscriptionCreated") });
     }
   };
 
@@ -291,7 +294,7 @@ export default function Account() {
       body: JSON.stringify({ endpoint, platform: "web" }),
     });
     if (res.ok) {
-      toast({ title: "Push notifications enabled" });
+      toast({ title: t("account.toast.pushEnabled") });
       const rows = await authFetch("/api/account/notifications/subscriptions").then((r) => (r.ok ? r.json() : []));
       setNotificationDevices(Array.isArray(rows) ? rows : []);
     }
@@ -301,11 +304,11 @@ export default function Account() {
     const res = await authFetch(`/api/account/notifications/subscriptions/${id}`, { method: "DELETE" });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: "Failed to remove device" }));
-      toast({ variant: "destructive", title: "Remove failed", description: payload.message });
+      toast({ variant: "destructive", title: t("account.toast.removeFailed"), description: payload.message });
       return;
     }
     setNotificationDevices((prev) => prev.filter((device) => device.id !== id));
-    toast({ title: "Notification device removed" });
+    toast({ title: t("account.toast.deviceRemoved") });
   };
 
   const skipSubscriptionNext = async (id: number) => {
@@ -317,7 +320,7 @@ export default function Account() {
     if (res.ok) {
       const rows = await authFetch("/api/subscriptions").then((r) => (r.ok ? r.json() : []));
       setSubscriptions(Array.isArray(rows) ? rows : []);
-      toast({ title: "Next subscription run skipped" });
+      toast({ title: t("account.toast.skipRun") });
     }
   };
 
@@ -325,13 +328,13 @@ export default function Account() {
     if (!referralInput.trim()) return;
     try {
       const payload = await redeemReferral.mutateAsync(referralInput.trim());
-      toast({ title: "Referral redeemed", description: `+${payload.awardedPoints} points awarded.` });
+      toast({ title: t("account.toast.referralRedeemed"), description: t("account.toast.referralRedeemedBody", { points: payload.awardedPoints }) });
       setReferralInput("");
       await refetchSummary();
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Referral failed",
+        title: t("account.toast.referralFailed"),
         description: error instanceof Error ? error.message : "Please try again",
       });
     }
@@ -341,56 +344,56 @@ export default function Account() {
     <div className="min-h-screen pt-24 pb-20 px-4 bg-background">
       <div className="max-w-7xl mx-auto space-y-6">
         <div>
-          <h1 className="font-display text-4xl font-bold">My Account Hub</h1>
-          <p className="text-muted-foreground">Loyalty, referrals, reorder, subscriptions, returns, support, and security.</p>
+          <h1 className="font-display text-4xl font-bold">{t("account.title")}</h1>
+          <p className="text-muted-foreground">{t("account.subtitle")}</p>
         </div>
 
         <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="border border-border rounded-xl p-4 bg-card">
-            <p className="text-sm text-muted-foreground">Loyalty Points</p>
+            <p className="text-sm text-muted-foreground">{t("account.loyaltyPoints")}</p>
             <p className="text-2xl font-bold">{summary?.loyaltyPoints ?? 0}</p>
           </div>
           <div className="border border-border rounded-xl p-4 bg-card">
-            <p className="text-sm text-muted-foreground">Tier</p>
+            <p className="text-sm text-muted-foreground">{t("account.tier")}</p>
             <p className="text-2xl font-bold">{summary?.tier ?? "Bronze"}</p>
           </div>
           <div className="border border-border rounded-xl p-4 bg-card">
-            <p className="text-sm text-muted-foreground">Lifetime Spend</p>
-            <p className="text-2xl font-bold">${(summary?.totalSpend ?? 0).toFixed(2)}</p>
+            <p className="text-sm text-muted-foreground">{t("account.lifetimeSpend")}</p>
+            <p className="text-2xl font-bold">{formatCurrency(summary?.totalSpend ?? 0)}</p>
           </div>
           <div className="border border-border rounded-xl p-4 bg-card">
-            <p className="text-sm text-muted-foreground">Referral Code</p>
-            <p className="text-xl font-bold">{summary?.referralCode ?? "N/A"}</p>
+            <p className="text-sm text-muted-foreground">{t("account.referralCode")}</p>
+            <p className="text-xl font-bold">{summary?.referralCode ?? t("account.na")}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {summary?.referralsCount ?? 0} redeemed
+              {t("account.redeemedCount", { count: summary?.referralsCount ?? 0 })}
             </p>
           </div>
         </section>
 
         <section className="grid lg:grid-cols-2 gap-6">
           <div className="border border-border rounded-2xl p-5 bg-card space-y-3">
-            <h2 className="font-display text-2xl font-semibold">Referral Rewards</h2>
+            <h2 className="font-display text-2xl font-semibold">{t("account.referralRewards")}</h2>
             <p className="text-sm text-muted-foreground">
-              Redeem a friend's code to earn bonus points once per account.
+              {t("account.referralBody")}
             </p>
             <div className="flex gap-2">
               <Input
-                placeholder="Enter referral code"
+                placeholder={t("account.enterReferral")}
                 value={referralInput}
                 onChange={(e) => setReferralInput(e.target.value)}
               />
               <Button onClick={handleRedeemReferral} disabled={redeemReferral.isPending}>
-                Redeem
+                {t("account.redeem")}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Bonus points earned: {summary?.referralBonusPoints ?? 0}
+              {t("account.bonusPoints", { count: summary?.referralBonusPoints ?? 0 })}
             </p>
           </div>
           <div className="border border-border rounded-2xl p-5 bg-card">
-            <h2 className="font-display text-2xl font-semibold mb-3">My Alert Feed</h2>
+            <h2 className="font-display text-2xl font-semibold mb-3">{t("account.alertFeed")}</h2>
             {alertsFeed.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No price-drop or restock alerts yet.</p>
+              <p className="text-sm text-muted-foreground">{t("account.noAlerts")}</p>
             ) : (
               <div className="space-y-2">
                 {alertsFeed.map((item, idx) => (
@@ -406,9 +409,9 @@ export default function Account() {
 
         <section className="grid lg:grid-cols-2 gap-6">
           <div className="border border-border rounded-2xl p-5 bg-card space-y-4">
-            <h2 className="font-display text-2xl font-semibold">Alerts, Subscription, Security</h2>
+            <h2 className="font-display text-2xl font-semibold">{t("account.alertsSecurity")}</h2>
             <label className="flex items-center justify-between">
-              <span>Price drop alerts</span>
+              <span>{t("account.pref.priceDrop")}</span>
               <input
                 type="checkbox"
                 checked={localPrefs.priceDropAlerts}
@@ -416,7 +419,7 @@ export default function Account() {
               />
             </label>
             <label className="flex items-center justify-between">
-              <span>Back-in-stock alerts</span>
+              <span>{t("account.pref.stock")}</span>
               <input
                 type="checkbox"
                 checked={localPrefs.stockAlerts}
@@ -424,7 +427,7 @@ export default function Account() {
               />
             </label>
             <label className="flex items-center justify-between">
-              <span>Weekly essentials subscription</span>
+              <span>{t("account.pref.subscription")}</span>
               <input
                 type="checkbox"
                 checked={localPrefs.essentialsSubscription}
@@ -432,7 +435,7 @@ export default function Account() {
               />
             </label>
             <label className="flex items-center justify-between">
-              <span>Two-factor authentication</span>
+              <span>{t("account.pref.twoFactor")}</span>
               <input
                 type="checkbox"
                 checked={localPrefs.twoFactorEnabled}
@@ -450,31 +453,31 @@ export default function Account() {
               <div className="space-y-2 border border-border rounded-lg p-3 bg-muted/20">
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={handleSendTwoFactorCode}>
-                    Send Code
+                    {t("account.sendCode")}
                   </Button>
                   <Input
-                    placeholder="6-digit code"
+                    placeholder={t("account.codePlaceholder")}
                     value={twoFactorCode}
                     onChange={(e) => setTwoFactorCode(e.target.value)}
                   />
-                  <Button type="button" onClick={handleVerifyTwoFactor}>Verify</Button>
+                  <Button type="button" onClick={handleVerifyTwoFactor}>{t("account.verify")}</Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Status: {twoFactorVerified ? "Verified" : "Not verified"}
+                  {t("account.status", { value: twoFactorVerified ? t("account.verified") : t("account.notVerified") })}
                 </p>
               </div>
             )}
             <Button className="rounded-full" onClick={handleSavePreferences} disabled={savePreferences.isPending}>
-              Save Preferences
+              {t("account.savePreferences")}
             </Button>
           </div>
 
           <div className="border border-border rounded-2xl p-5 bg-card space-y-4">
-            <h2 className="font-display text-2xl font-semibold">Wishlist Sharing</h2>
-            <p className="text-sm text-muted-foreground">Share this link so others can browse your favorite picks.</p>
-            <Input value={wishlistShareLink} readOnly placeholder="Generate a secure share link" />
+            <h2 className="font-display text-2xl font-semibold">{t("account.wishlistSharing")}</h2>
+            <p className="text-sm text-muted-foreground">{t("account.wishlistBody")}</p>
+            <Input value={wishlistShareLink} readOnly placeholder={t("account.generateShareLink")} />
             <Button className="rounded-full" onClick={handleGenerateWishlistShare} disabled={createWishlistShare.isPending}>
-              Generate Link
+              {t("account.generateLink")}
             </Button>
             <Button
               variant="outline"
@@ -482,27 +485,27 @@ export default function Account() {
               onClick={async () => {
                 if (!wishlistShareLink) return;
                 await navigator.clipboard.writeText(wishlistShareLink);
-                toast({ title: "Wishlist link copied" });
+                toast({ title: t("account.toast.linkCopied") });
               }}
               disabled={!wishlistShareLink}
             >
-              Copy Share Link
+              {t("account.copyShareLink")}
             </Button>
             <Button variant="outline" className="rounded-full" onClick={registerPush}>
-              Enable Push Notifications
+              {t("account.enablePush")}
             </Button>
             <div className="space-y-2 pt-2">
               {notificationDevices.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No notification devices registered yet.</p>
+                <p className="text-sm text-muted-foreground">{t("account.noDevices")}</p>
               ) : (
                 notificationDevices.map((device) => (
                   <div key={device.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
                     <div>
-                      <p className="font-medium capitalize">{device.platform} device</p>
-                      <p className="text-muted-foreground">Added {new Date(device.createdAt).toLocaleString()}</p>
+                      <p className="font-medium capitalize">{t("account.device", { platform: device.platform })}</p>
+                      <p className="text-muted-foreground">{t("account.addedAt", { date: formatDateTime(device.createdAt) })}</p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => removeNotificationDevice(device.id)}>
-                      Remove
+                      {t("account.remove")}
                     </Button>
                   </div>
                 ))
@@ -513,21 +516,21 @@ export default function Account() {
 
         <section className="border border-border rounded-2xl p-5 bg-card">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-2xl font-semibold">Subscriptions</h2>
-            <Button onClick={createSubscription} className="rounded-full">New Subscription</Button>
+            <h2 className="font-display text-2xl font-semibold">{t("account.subscriptions")}</h2>
+            <Button onClick={createSubscription} className="rounded-full">{t("account.newSubscription")}</Button>
           </div>
           <div className="space-y-2">
             {subscriptions.length === 0 ? (
-              <p className="text-muted-foreground">No active subscriptions.</p>
+              <p className="text-muted-foreground">{t("account.noSubscriptions")}</p>
             ) : (
               subscriptions.map((sub) => (
                 <div key={sub.id} className="border border-border rounded-lg p-3 flex items-center justify-between text-sm">
-                  <span>#{sub.id} - {sub.frequency} - {sub.status}{sub.nextRunAt ? ` - next ${new Date(sub.nextRunAt).toLocaleDateString()}` : ""}</span>
+                  <span>#{sub.id} - {sub.frequency} - {sub.status}{sub.nextRunAt ? ` - ${t("account.nextRun", { date: new Date(sub.nextRunAt).toLocaleDateString() })}` : ""}</span>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => skipSubscriptionNext(sub.id)}>Skip Next</Button>
-                    <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "paused")}>Pause</Button>
-                    <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "active")}>Resume</Button>
-                    <Button size="sm" variant="destructive" onClick={() => updateSubscription(sub.id, "cancelled")}>Cancel</Button>
+                    <Button size="sm" variant="outline" onClick={() => skipSubscriptionNext(sub.id)}>{t("account.skipNext")}</Button>
+                    <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "paused")}>{t("account.pause")}</Button>
+                    <Button size="sm" variant="outline" onClick={() => updateSubscription(sub.id, "active")}>{t("account.resume")}</Button>
+                    <Button size="sm" variant="destructive" onClick={() => updateSubscription(sub.id, "cancelled")}>{t("account.cancel")}</Button>
                   </div>
                 </div>
               ))
@@ -537,10 +540,10 @@ export default function Account() {
 
         <section className="border border-border rounded-2xl p-5 bg-card">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-            <h2 className="font-display text-2xl font-semibold">Order History and Reorder</h2>
+            <h2 className="font-display text-2xl font-semibold">{t("account.orderHistory")}</h2>
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
-                placeholder="Search order number"
+                placeholder={t("account.searchOrder")}
                 value={orderQuery}
                 onChange={(e) => setOrderQuery(e.target.value)}
                 className="sm:w-52"
@@ -550,7 +553,7 @@ export default function Account() {
                 onChange={(e) => setOrderStatusFilter(e.target.value)}
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="all">All statuses</option>
+                <option value="all">{t("account.allStatuses")}</option>
                 <option value="pending">Pending</option>
                 <option value="packed">Packed</option>
                 <option value="shipped">Shipped</option>
@@ -561,18 +564,18 @@ export default function Account() {
           </div>
           <div className="space-y-3">
             {filteredOrders.length === 0 ? (
-              <p className="text-muted-foreground">No orders found yet.</p>
+              <p className="text-muted-foreground">{t("account.noOrders")}</p>
             ) : (
               filteredOrders.map((order) => (
                 <div key={order.id} className="grid grid-cols-12 gap-2 border-b border-border pb-3 text-sm">
                   <span className="col-span-3">{order.orderNumber}</span>
                   <span className="col-span-3 capitalize">{order.status}</span>
-                  <span className="col-span-2">${Number(order.total).toFixed(2)}</span>
+                  <span className="col-span-2">{formatOrderMoney(order.total, order, formatCurrency)}</span>
                   <span className="col-span-2">{new Date(order.createdAt).toLocaleDateString()}</span>
                   <div className="col-span-2 flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => handleReorder(order.id)}>Reorder</Button>
+                    <Button size="sm" variant="outline" onClick={() => handleReorder(order.id)}>{t("account.reorder")}</Button>
                     <Button size="sm" asChild>
-                      <Link href={`/order-success/${order.id}`}>Invoice</Link>
+                      <Link href={`/order-success/${order.id}`}>{t("account.invoice")}</Link>
                     </Button>
                   </div>
                 </div>
@@ -583,24 +586,24 @@ export default function Account() {
 
         <section className="grid lg:grid-cols-2 gap-6">
           <form onSubmit={handleCreateSupportTicket} className="border border-border rounded-2xl p-5 bg-card space-y-3">
-            <h2 className="font-display text-2xl font-semibold">Support Ticket</h2>
+            <h2 className="font-display text-2xl font-semibold">{t("account.supportTicket")}</h2>
             <Input
-              placeholder="Topic"
+              placeholder={t("account.topic")}
               value={supportTopic}
               onChange={(e) => setSupportTopic(e.target.value)}
               required
             />
             <Input
-              placeholder="Describe your issue"
+              placeholder={t("account.describeIssue")}
               value={supportMessage}
               onChange={(e) => setSupportMessage(e.target.value)}
               required
             />
-            <Button type="submit" className="rounded-full">Submit Ticket</Button>
+            <Button type="submit" className="rounded-full">{t("account.submitTicket")}</Button>
             <div className="pt-3 border-t border-border text-sm text-muted-foreground space-y-1">
-              <p>FAQ: Delivery times are shown during checkout.</p>
-              <p>FAQ: Refunds are processed within 3-5 business days.</p>
-              <p>FAQ: Track order progress from your order success page.</p>
+              <p>{t("account.faq1")}</p>
+              <p>{t("account.faq2")}</p>
+              <p>{t("account.faq3")}</p>
             </div>
             <div className="space-y-2 pt-2">
               {supportTickets.slice(0, 4).map((ticket) => (
@@ -610,17 +613,17 @@ export default function Account() {
                     <span className="capitalize text-muted-foreground">{ticket.status}</span>
                   </div>
                   <p className="text-muted-foreground mt-1">{ticket.message}</p>
-                  <p className="text-xs text-muted-foreground mt-2">{new Date(ticket.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{formatDateTime(ticket.createdAt)}</p>
                 </div>
               ))}
               {supportTickets.length === 0 && (
-                <p className="text-sm text-muted-foreground">No support tickets yet.</p>
+                <p className="text-sm text-muted-foreground">{t("account.noTickets")}</p>
               )}
             </div>
           </form>
 
           <div className="border border-border rounded-2xl p-5 bg-card">
-            <h2 className="font-display text-2xl font-semibold mb-3">Live Chat</h2>
+            <h2 className="font-display text-2xl font-semibold mb-3">{t("account.liveChat")}</h2>
             <div className="h-44 overflow-y-auto border border-border rounded-lg p-3 space-y-2 mb-3 bg-muted/20">
               {chatMessages.map((message, idx) => (
                 <p key={idx} className={message.role === "user" ? "text-right text-sm" : "text-sm text-muted-foreground"}>
@@ -630,55 +633,55 @@ export default function Account() {
             </div>
             <form onSubmit={handleChatSend} className="flex gap-2">
               <Input
-                placeholder="Type your message"
+                placeholder={t("account.typeMessage")}
                 value={chatText}
                 onChange={(e) => setChatText(e.target.value)}
               />
-              <Button type="submit">Send</Button>
+              <Button type="submit">{t("account.send")}</Button>
             </form>
           </div>
         </section>
 
         <section className="border border-border rounded-2xl p-5 bg-card">
-          <h2 className="font-display text-2xl font-semibold mb-4">Returns Portal</h2>
+          <h2 className="font-display text-2xl font-semibold mb-4">{t("account.returnsPortal")}</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            Submit returns against delivered orders, then track updates from your order pages and support messages.
+            {t("account.returnsBody")}
           </p>
           <form onSubmit={handleReturnRequest} className="grid md:grid-cols-3 gap-3">
             <Input
               type="number"
-              placeholder="Order ID"
+              placeholder={t("account.orderId")}
               value={returnOrderId}
               onChange={(e) => setReturnOrderId(e.target.value)}
               required
             />
             <Input
-              placeholder="Reason"
+              placeholder={t("account.reason")}
               value={returnReason}
               onChange={(e) => setReturnReason(e.target.value)}
               required
             />
-            <Button type="submit" className="rounded-full">Request Return</Button>
+            <Button type="submit" className="rounded-full">{t("account.requestReturn")}</Button>
           </form>
           <div className="space-y-3 mt-5">
             {returnsHistory.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No return requests submitted yet.</p>
+              <p className="text-sm text-muted-foreground">{t("account.noReturns")}</p>
             ) : (
               returnsHistory.map((row) => (
                 <div key={row.id} className="rounded-xl border border-border p-4 text-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <p className="font-medium">Return #{row.id} for Order {row.orderId}</p>
+                    <p className="font-medium">{t("account.returnForOrder", { id: row.id, orderId: row.orderId })}</p>
                     <span className="capitalize text-muted-foreground">{row.status}</span>
                   </div>
                   <p className="text-muted-foreground mt-1">{row.reason}</p>
-                  <p className="text-xs text-muted-foreground mt-2">{new Date(row.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{formatDateTime(row.createdAt)}</p>
                   {row.timeline && row.timeline.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {row.timeline.map((event) => (
                         <div key={event.id} className="rounded-lg bg-muted/20 px-3 py-2">
                           <p className="font-medium capitalize">{event.status}</p>
                           {event.note && <p className="text-muted-foreground">{event.note}</p>}
-                          <p className="text-xs text-muted-foreground mt-1">{new Date(event.createdAt).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{formatDateTime(event.createdAt)}</p>
                         </div>
                       ))}
                     </div>

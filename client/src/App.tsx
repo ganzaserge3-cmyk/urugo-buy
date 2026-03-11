@@ -27,6 +27,7 @@ import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import ContentPage from "@/pages/ContentPage";
 import { useAbandonedCartWatcher } from "@/hooks/use-abandoned-cart";
+import { I18nProvider } from "@/lib/i18n";
 
 function Router() {
   return (
@@ -65,10 +66,12 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <I18nProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }

@@ -52,6 +52,25 @@ const sessions = new Map<string, SessionValue>();
 const abandonedCartLog: Array<{ email?: string; itemCount: number; createdAt: string }> = [];
 const firebaseSessionCache = new Map<string, { session: SessionValue; expiresAt: number }>();
 
+function isValidMediaUrl(value: string): boolean {
+  if (!value || !value.trim()) return false;
+
+  const trimmed = value.trim();
+  if (trimmed.startsWith("/")) return true;
+  if (trimmed.startsWith("uploads/") || trimmed.startsWith("images/")) return true;
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const mediaUrlSchema = z.string().trim().refine(isValidMediaUrl, {
+  message: "Media URL must be an absolute http(s) URL or an app-relative path",
+});
+
 const deliverySlots = [
   { id: "today-evening", label: "Today 6:00 PM - 8:00 PM", capacity: 30, isPickup: false },
   { id: "tomorrow-morning", label: "Tomorrow 9:00 AM - 12:00 PM", capacity: 40, isPickup: false },
@@ -337,6 +356,121 @@ async function computeGiftCardDiscount(giftCardCode: string | undefined, totalBe
   };
 }
 
+type MarketPricingContext = {
+  country: string;
+  currencyCode: string;
+  currencySymbol: string;
+  exchangeRate: number;
+  taxRate: number;
+  freeShippingThresholdUsd: number;
+  shippingFeeUsd: number;
+};
+
+async function getMarketPricingContext(country: string | undefined): Promise<MarketPricingContext> {
+  const normalized = (country || "USA").trim().toUpperCase();
+  const countryCode =
+    normalized === "US" ? "USA" :
+    normalized === "UNITED STATES" ? "USA" :
+    normalized === "FRANCE" ? "FR" :
+    normalized === "UAE" ? "AE" :
+    normalized === "UNITED ARAB EMIRATES" ? "AE" :
+    normalized;
+
+  const presets: Record<string, Omit<MarketPricingContext, "exchangeRate">> = {
+    USA: {
+      country: "USA",
+      currencyCode: "USD",
+      currencySymbol: "$",
+      taxRate: 0.08,
+      freeShippingThresholdUsd: 100,
+      shippingFeeUsd: 9.99,
+    },
+    FR: {
+      country: "FR",
+      currencyCode: "EUR",
+      currencySymbol: "EUR",
+      taxRate: 0.2,
+      freeShippingThresholdUsd: 90,
+      shippingFeeUsd: 7.99,
+    },
+    AE: {
+      country: "AE",
+      currencyCode: "AED",
+      currencySymbol: "AED",
+      taxRate: 0.05,
+      freeShippingThresholdUsd: 80,
+      shippingFeeUsd: 5.99,
+    },
+    UK: {
+      country: "UK",
+      currencyCode: "GBP",
+      currencySymbol: "GBP",
+      taxRate: 0.2,
+      freeShippingThresholdUsd: 95,
+      shippingFeeUsd: 8.99,
+    },
+    DE: {
+      country: "DE",
+      currencyCode: "EUR",
+      currencySymbol: "EUR",
+      taxRate: 0.19,
+      freeShippingThresholdUsd: 90,
+      shippingFeeUsd: 7.99,
+    },
+    RW: {
+      country: "RW",
+      currencyCode: "RWF",
+      currencySymbol: "RWF",
+      taxRate: 0.18,
+      freeShippingThresholdUsd: 60,
+      shippingFeeUsd: 4.99,
+    },
+    CA: {
+      country: "CA",
+      currencyCode: "CAD",
+      currencySymbol: "CAD",
+      taxRate: 0.13,
+      freeShippingThresholdUsd: 95,
+      shippingFeeUsd: 8.99,
+    },
+  };
+
+  const preset = presets[countryCode] ?? presets.USA;
+  if (preset.currencyCode === "USD") {
+    return { ...preset, exchangeRate: 1 };
+  }
+
+  const [rateRow] = await db
+    .select()
+    .from(currencyRates)
+    .where(eq(currencyRates.code, preset.currencyCode))
+    .limit(1);
+
+  return {
+    ...preset,
+    exchangeRate: rateRow ? Number(rateRow.rateFromUsd) : 1,
+  };
+}
+
+function convertAmount(amountUsd: number, exchangeRate: number) {
+  return roundCurrency(amountUsd * exchangeRate);
+}
+
+async function mergeOrderMetaRows<T extends { id: number }>(rows: T[]) {
+  if (rows.length === 0) return rows;
+
+  const metas = await db
+    .select()
+    .from(orderMeta)
+    .where(inArray(orderMeta.orderId, rows.map((row) => row.id)));
+
+  const metaByOrderId = new Map(metas.map((meta) => [meta.orderId, meta]));
+  return rows.map((row) => ({
+    ...row,
+    ...(metaByOrderId.get(row.id) || {}),
+  }));
+}
+
 async function getDeliverySlotsWithCapacity() {
   const fromDate = new Date(Date.now() - 36 * 60 * 60 * 1000);
   const rows = await db
@@ -587,8 +721,8 @@ export async function registerRoutes(
   app.get("/api/tax/estimate", async (req, res) => {
     const country = typeof req.query.country === "string" ? req.query.country.toUpperCase() : "USA";
     const subtotal = Number(req.query.subtotal || 0);
-    const rate = getTaxRateByCountry(country);
-    return res.json({ country, rate, tax: roundCurrency(subtotal * rate) });
+    const market = await getMarketPricingContext(country);
+    return res.json({ country: market.country, rate: market.taxRate, tax: roundCurrency(subtotal * market.taxRate) });
   });
 
   app.get("/api/search/suggest", async (req, res) => {
@@ -606,7 +740,7 @@ export async function registerRoutes(
         .where(ilike(products.name, `%${q}%`))
         .orderBy(desc(products.rating), asc(products.name))
         .limit(8);
-      return res.json(rows);
+      return res.json(await mergeOrderMetaRows(rows));
     } catch {
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -761,8 +895,8 @@ export async function registerRoutes(
       const input = z.object({
         rating: z.number().min(1).max(5),
         comment: z.string().min(3).max(500),
-        photoUrl: z.string().url().optional(),
-        videoUrl: z.string().url().optional(),
+        photoUrl: mediaUrlSchema.optional(),
+        videoUrl: mediaUrlSchema.optional(),
       }).parse(req.body);
 
       const [purchase] = await db
@@ -883,7 +1017,7 @@ export async function registerRoutes(
         .from(productQuestions)
         .innerJoin(products, eq(products.id, productQuestions.productId))
         .orderBy(desc(productQuestions.createdAt), desc(productQuestions.id));
-      return res.json(rows);
+      return res.json(await mergeOrderMetaRows(rows));
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
       if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
@@ -1038,22 +1172,38 @@ export async function registerRoutes(
     try {
       const input = api.checkout.quote.input.parse(req.body);
       const quote = await storage.getCheckoutQuote({ items: input.items });
-      const taxRate = getTaxRateByCountry(input.country);
-      const regionalTax = roundCurrency(quote.subtotal * taxRate);
-      const totalBeforeDiscounts = roundCurrency(quote.subtotal + quote.shippingFee + regionalTax);
+      const market = await getMarketPricingContext(input.country);
+      const shippingFee = quote.subtotal >= market.freeShippingThresholdUsd ? 0 : market.shippingFeeUsd;
+      const regionalTax = roundCurrency(quote.subtotal * market.taxRate);
+      const totalBeforeDiscounts = roundCurrency(quote.subtotal + shippingFee + regionalTax);
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
       const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
       const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
       const total = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
       res.json({
         ...quote,
+        shippingFee,
         tax: regionalTax,
-        taxRate,
+        taxRate: market.taxRate,
         discount,
         giftCardDiscount,
         couponCode: coupon?.code,
         giftCardCode: giftCard?.code,
         total,
+        market: {
+          country: market.country,
+          currencyCode: market.currencyCode,
+          currencySymbol: market.currencySymbol,
+          exchangeRate: market.exchangeRate,
+        },
+        converted: {
+          subtotal: convertAmount(quote.subtotal, market.exchangeRate),
+          shippingFee: convertAmount(shippingFee, market.exchangeRate),
+          tax: convertAmount(regionalTax, market.exchangeRate),
+          discount: convertAmount(discount, market.exchangeRate),
+          giftCardDiscount: convertAmount(giftCardDiscount, market.exchangeRate),
+          total: convertAmount(total, market.exchangeRate),
+        },
       });
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -1084,9 +1234,10 @@ export async function registerRoutes(
       }
       const order = await storage.createOrder(input);
       const quote = await storage.getCheckoutQuote({ items: input.items });
-      const taxRate = getTaxRateByCountry(input.country);
-      const regionalTax = roundCurrency(quote.subtotal * taxRate);
-      const totalBeforeDiscounts = roundCurrency(quote.subtotal + quote.shippingFee + regionalTax);
+      const market = await getMarketPricingContext(input.country);
+      const shippingFee = quote.subtotal >= market.freeShippingThresholdUsd ? 0 : market.shippingFeeUsd;
+      const regionalTax = roundCurrency(quote.subtotal * market.taxRate);
+      const totalBeforeDiscounts = roundCurrency(quote.subtotal + shippingFee + regionalTax);
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
       const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
       const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
@@ -1096,7 +1247,7 @@ export async function registerRoutes(
         .update(orders)
         .set({
           subtotal: quote.subtotal.toFixed(2),
-          shippingFee: quote.shippingFee.toFixed(2),
+          shippingFee: shippingFee.toFixed(2),
           tax: regionalTax.toFixed(2),
           total: finalTotal.toFixed(2),
         })
@@ -1116,6 +1267,10 @@ export async function registerRoutes(
         deliverySlot: input.deliverySlot,
         paymentMethod: input.paymentMethod || "cod",
         paymentStatus: "pending",
+        marketCountry: market.country,
+        currencyCode: market.currencyCode,
+        currencySymbol: market.currencySymbol,
+        exchangeRate: market.exchangeRate.toFixed(6),
       });
 
       await db.insert(notificationLogs).values({
@@ -1126,7 +1281,7 @@ export async function registerRoutes(
 
       await sendSmsOrWhatsApp(
         process.env.TWILIO_TO || "",
-        `UrugoBuy: Order ${order.orderNumber} confirmed. Total $${order.total.toFixed(2)}.`,
+        `UrugoBuy: Order ${order.orderNumber} confirmed. Total $${finalTotal.toFixed(2)}.`,
       ).catch(() => undefined);
 
       res.status(201).json({ ...order, total: finalTotal });
@@ -2086,8 +2241,8 @@ export async function registerRoutes(
         name: z.string().min(2),
         description: z.string().min(3),
         price: z.number().positive(),
-        imageUrl: z.string().url(),
-        imageGallery: z.array(z.string().url()).default([]),
+        imageUrl: mediaUrlSchema,
+        imageGallery: z.array(mediaUrlSchema).default([]),
         categoryId: z.number().int().positive(),
         vendorId: z.number().int().positive().optional(),
         rating: z.number().min(0).max(5).default(4.5),
@@ -2116,8 +2271,8 @@ export async function registerRoutes(
         name: z.string().min(2).optional(),
         description: z.string().min(3).optional(),
         price: z.number().positive().optional(),
-        imageUrl: z.string().url().optional(),
-        imageGallery: z.array(z.string().url()).optional(),
+        imageUrl: mediaUrlSchema.optional(),
+        imageGallery: z.array(mediaUrlSchema).optional(),
         categoryId: z.number().int().positive().optional(),
         vendorId: z.number().int().positive().optional(),
         rating: z.number().min(0).max(5).optional(),

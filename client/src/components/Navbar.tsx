@@ -7,6 +7,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useSearchSuggestions } from "@/hooks/use-products";
+import { useI18n } from "@/lib/i18n";
 
 export function Navbar() {
   const [location, setLocation] = useLocation();
@@ -20,6 +21,7 @@ export function Navbar() {
   const { totalItems, setIsOpen } = useCart();
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { market, markets, setMarketCode, t, formatCurrency, isRTL } = useI18n();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -40,10 +42,10 @@ export function Navbar() {
   };
 
   const navLinks = [
-    { name: "Home", path: "/" },
-    { name: "Shop", path: "/shop" },
-    ...(user ? [{ name: "Account", path: "/account" }] : []),
-    ...(user?.role === "admin" ? [{ name: "Admin", path: "/admin" }] : []),
+    { name: t("nav.home"), path: "/" },
+    { name: t("nav.shop"), path: "/shop" },
+    ...(user ? [{ name: t("nav.account"), path: "/account" }] : []),
+    ...(user?.role === "admin" ? [{ name: t("nav.admin"), path: "/admin" }] : []),
   ];
 
   return (
@@ -61,7 +63,7 @@ export function Navbar() {
             <div className="leading-none">
               <span className="brand-logo-text text-5xl sm:text-4xl">UrugoBuy<span className="text-primary/50">.</span></span>
               <p className="text-[11px] sm:text-xs font-semibold tracking-wide text-muted-foreground mt-1">
-                Fresh Fruits and Foods
+                {t("brand.tagline")}
               </p>
             </div>
           </Link>
@@ -83,20 +85,34 @@ export function Navbar() {
 
           {/* Actions */}
           <div className="flex items-center space-x-2 sm:space-x-4">
+            <label className="hidden lg:flex items-center gap-2 text-sm text-muted-foreground">
+              <span>{t("nav.market")}</span>
+              <select
+                value={market.code}
+                onChange={(e) => setMarketCode(e.target.value as typeof market.code)}
+                className="rounded-full border border-border bg-background/70 px-3 py-2 text-foreground"
+              >
+                {markets.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             {user ? (
               <div className="hidden md:flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Hi, {user.name}</span>
+                <span className="text-sm text-muted-foreground">{t("nav.greeting", { name: user.name })}</span>
                 <Button variant="outline" className="rounded-full" onClick={logout}>
-                  Logout
+                  {t("nav.logout")}
                 </Button>
               </div>
             ) : (
               <div className="hidden md:flex items-center gap-2">
                 <Button variant="ghost" className="rounded-full" asChild>
-                  <Link href="/login">Login</Link>
+                  <Link href="/login">{t("nav.login")}</Link>
                 </Button>
                 <Button className="rounded-full" asChild>
-                  <Link href="/signup">Sign Up</Link>
+                  <Link href="/signup">{t("nav.signup")}</Link>
                 </Button>
               </div>
             )}
@@ -107,10 +123,10 @@ export function Navbar() {
                 <form onSubmit={handleSearch} className="relative animate-in slide-in-from-right-4 fade-in duration-200">
                   <Input
                     autoFocus
-                    placeholder="Search products..."
+                    placeholder={t("nav.searchProducts")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-48 lg:w-64 rounded-full pl-4 pr-10 bg-background/50 backdrop-blur-sm"
+                    className={`w-48 lg:w-64 rounded-full bg-background/50 backdrop-blur-sm ${isRTL ? "pr-4 pl-10" : "pl-4 pr-10"}`}
                     onBlur={() => !searchQuery && setIsSearchOpen(false)}
                   />
                   <Button 
@@ -139,10 +155,10 @@ export function Navbar() {
                             <div>
                               <p className="font-medium">{item.name}</p>
                               <p className="text-xs text-muted-foreground">
-                                {item.categoryId === 1 ? "Fruit" : item.categoryId === 2 ? "Food" : "Product"}
+                                {item.categoryId === 1 ? t("nav.category.fruit") : item.categoryId === 2 ? t("nav.category.food") : t("nav.category.product")}
                               </p>
                             </div>
-                            {item.price && <span className="text-xs text-muted-foreground">${Number(item.price).toFixed(2)}</span>}
+                            {item.price && <span className="text-xs text-muted-foreground">{formatCurrency(item.price)}</span>}
                           </div>
                         </button>
                       ))}
@@ -195,7 +211,7 @@ export function Navbar() {
           <div className="px-4 pt-4 pb-6 space-y-4">
             <form onSubmit={handleSearch} className="relative mb-6">
               <Input
-                placeholder="Search..."
+                placeholder={t("nav.searchShort")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl bg-muted/50 border-transparent"
@@ -225,21 +241,36 @@ export function Navbar() {
                   setIsMobileMenuOpen(false);
                 }}
               >
-                Logout
+                {t("nav.logout")}
               </Button>
             ) : (
               <div className="flex gap-2">
                 <Button variant="outline" className="rounded-full flex-1" asChild>
-                  <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>Login</Link>
+                  <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>{t("nav.login")}</Link>
                 </Button>
                 <Button className="rounded-full flex-1" asChild>
-                  <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)}>Sign Up</Link>
+                  <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)}>{t("nav.signup")}</Link>
                 </Button>
               </div>
             )}
             
+            <label className="flex items-center justify-between gap-3 px-2">
+              <span className="font-medium">{t("nav.market")}</span>
+              <select
+                value={market.code}
+                onChange={(e) => setMarketCode(e.target.value as typeof market.code)}
+                className="rounded-full border border-border bg-background px-3 py-2 text-sm"
+              >
+                {markets.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <div className="pt-4 border-t border-border flex items-center justify-between">
-              <span className="font-medium px-2">Theme</span>
+              <span className="font-medium px-2">{t("nav.theme")}</span>
               <Button size="icon" variant="outline" onClick={toggleTheme} className="rounded-full">
                 {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </Button>

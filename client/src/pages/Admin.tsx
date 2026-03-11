@@ -7,6 +7,8 @@ import { authFetch } from "@/lib/auth";
 import { normalizeProductImageUrl } from "@/lib/images";
 import { useSeo } from "@/hooks/use-seo";
 import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/lib/i18n";
+import { formatOrderMoney } from "@/lib/order-pricing";
 
 type AdminProduct = {
   id: number;
@@ -28,6 +30,10 @@ type AdminOrder = {
   customerEmail: string;
   total: string;
   status: string;
+  marketCountry?: string;
+  currencyCode?: string;
+  currencySymbol?: string;
+  exchangeRate?: string | number;
 };
 
 type AdminOrderDetail = {
@@ -48,6 +54,10 @@ type AdminOrderDetail = {
     paymentStatus?: string;
     deliverySlot?: string;
     createdAt: string | Date;
+    marketCountry?: string;
+    currencyCode?: string;
+    currencySymbol?: string;
+    exchangeRate?: string | number;
   };
   items: Array<{
     id: number;
@@ -108,6 +118,7 @@ type AdminQuestion = {
 
 export default function Admin() {
   useSeo("Admin Dashboard - UrugoBuy", "Manage catalog, orders, pricing, promotions, and operations from the admin dashboard.", { canonicalPath: "/admin", robots: "noindex,nofollow" });
+  const { formatCurrency, formatDateTime } = useI18n();
   const { user, token } = useAuth();
   const { toast } = useToast();
   const [products, setProducts] = useState<AdminProduct[]>([]);
@@ -496,7 +507,7 @@ export default function Admin() {
           </div>
           <div className="border border-border rounded-xl p-4 bg-card">
             <p className="text-sm text-muted-foreground">Revenue</p>
-            <p className="text-2xl font-bold">${(analytics?.revenue ?? 0).toFixed(2)}</p>
+            <p className="text-2xl font-bold">{formatCurrency(analytics?.revenue ?? 0)}</p>
           </div>
           <div className="border border-border rounded-xl p-4 bg-card">
             <p className="text-sm text-muted-foreground">Products</p>
@@ -513,7 +524,7 @@ export default function Admin() {
           <div className="grid sm:grid-cols-3 gap-4 mb-4">
             <div className="rounded-lg border border-border p-3">
               <p className="text-sm text-muted-foreground">AOV</p>
-              <p className="text-xl font-bold">${(advancedAnalytics?.avgOrderValue ?? 0).toFixed(2)}</p>
+              <p className="text-xl font-bold">{formatCurrency(advancedAnalytics?.avgOrderValue ?? 0)}</p>
             </div>
             <div className="rounded-lg border border-border p-3">
               <p className="text-sm text-muted-foreground">Orders</p>
@@ -521,14 +532,14 @@ export default function Admin() {
             </div>
             <div className="rounded-lg border border-border p-3">
               <p className="text-sm text-muted-foreground">Revenue</p>
-              <p className="text-xl font-bold">${(advancedAnalytics?.revenue ?? 0).toFixed(2)}</p>
+              <p className="text-xl font-bold">{formatCurrency(advancedAnalytics?.revenue ?? 0)}</p>
             </div>
           </div>
           <div className="space-y-2 text-sm">
             {advancedAnalytics?.daily?.map((row) => (
               <div key={row.day} className="border border-border rounded-lg p-2 flex items-center justify-between">
                 <span>{row.day}</span>
-                <span>${row.revenue.toFixed(2)} / {row.orders} orders</span>
+                <span>{formatCurrency(row.revenue)} / {row.orders} orders</span>
               </div>
             ))}
           </div>
@@ -613,7 +624,7 @@ export default function Admin() {
               {giftCards.slice(0, 8).map((card) => (
                 <div key={card.code} className="border border-border rounded-lg p-2 flex justify-between">
                   <span>{card.code}</span>
-                  <span>${Number(card.balance).toFixed(2)}</span>
+                  <span>{formatCurrency(Number(card.balance))}</span>
                 </div>
               ))}
             </div>
@@ -626,7 +637,7 @@ export default function Admin() {
               {abandonedRows.slice(0, 8).map((row, index) => (
                 <div key={`${row.createdAt}-${index}`} className="border border-border rounded-lg p-2">
                   <p>{row.email || "Guest"} abandoned {row.itemCount} item(s)</p>
-                  <p className="text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
                 </div>
               ))}
             </div>
@@ -848,7 +859,7 @@ export default function Admin() {
                 ) : (
                   <div className="grid grid-cols-12 gap-2 items-center text-sm">
                     <span className="col-span-4 line-clamp-1">{p.name}</span>
-                    <span className="col-span-2">${Number(p.price).toFixed(2)}</span>
+                    <span className="col-span-2">{formatCurrency(Number(p.price))}</span>
                     <span className="col-span-2">Stock {p.stockQuantity}</span>
                     <span className="col-span-2">{p.isFeatured ? "Featured" : "Standard"}</span>
                     <div className="col-span-2 flex justify-end gap-2">
@@ -936,9 +947,9 @@ export default function Admin() {
                         <div key={item.id} className="flex items-center justify-between border-b border-border pb-2">
                           <div>
                             <p className="font-medium">{item.productName}</p>
-                            <p className="text-muted-foreground">Qty {item.quantity} x ${Number(item.unitPrice).toFixed(2)}</p>
+                            <p className="text-muted-foreground">Qty {item.quantity} x {formatOrderMoney(item.unitPrice, selectedOrderDetail.order, formatCurrency)}</p>
                           </div>
-                          <p>${Number(item.lineTotal).toFixed(2)}</p>
+                          <p>{formatOrderMoney(item.lineTotal, selectedOrderDetail.order, formatCurrency)}</p>
                         </div>
                       ))}
                     </div>
@@ -946,10 +957,10 @@ export default function Admin() {
                   <div className="grid md:grid-cols-2 gap-3">
                     <div className="rounded-xl border border-border bg-background p-3">
                       <p className="font-medium mb-2">Totals</p>
-                      <p className="text-muted-foreground">Subtotal: ${Number(selectedOrderDetail.order.subtotal).toFixed(2)}</p>
-                      <p className="text-muted-foreground">Shipping: ${Number(selectedOrderDetail.order.shippingFee).toFixed(2)}</p>
-                      <p className="text-muted-foreground">Tax: ${Number(selectedOrderDetail.order.tax).toFixed(2)}</p>
-                      <p className="font-medium mt-2">Total: ${Number(selectedOrderDetail.order.total).toFixed(2)}</p>
+                      <p className="text-muted-foreground">Subtotal: {formatOrderMoney(selectedOrderDetail.order.subtotal, selectedOrderDetail.order, formatCurrency)}</p>
+                      <p className="text-muted-foreground">Shipping: {formatOrderMoney(selectedOrderDetail.order.shippingFee, selectedOrderDetail.order, formatCurrency)}</p>
+                      <p className="text-muted-foreground">Tax: {formatOrderMoney(selectedOrderDetail.order.tax, selectedOrderDetail.order, formatCurrency)}</p>
+                      <p className="font-medium mt-2">Total: {formatOrderMoney(selectedOrderDetail.order.total, selectedOrderDetail.order, formatCurrency)}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-background p-3">
                       <p className="font-medium mb-2">Notifications</p>
@@ -1000,7 +1011,7 @@ export default function Admin() {
               <div key={o.id} className="grid grid-cols-12 gap-2 items-center text-sm border-b border-border pb-3">
                 <span className="col-span-3 line-clamp-1">{o.orderNumber}</span>
                 <span className="col-span-3 line-clamp-1">{o.customerEmail}</span>
-                <span className="col-span-2">${Number(o.total).toFixed(2)}</span>
+                <span className="col-span-2">{formatOrderMoney(o.total, o, formatCurrency)}</span>
                 <span className="col-span-2 capitalize">{o.status}</span>
                 <div className="col-span-2 flex gap-2">
                   <Button size="sm" variant="ghost" onClick={() => handleViewOrder(o.id)}>

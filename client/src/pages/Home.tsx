@@ -9,11 +9,13 @@ import { useCategories } from "@/hooks/use-categories";
 import { useProducts } from "@/hooks/use-products";
 import { useSubscribeNewsletter } from "@/hooks/use-newsletter";
 import { useSeo } from "@/hooks/use-seo";
+import { useI18n } from "@/lib/i18n";
 
 export default function Home() {
+  const { t, formatCurrency } = useI18n();
   useSeo(
-    "UrugoBuy - Fresh Fruits and Foods",
-    "Shop fresh fruits and quality food essentials with fast delivery, secure checkout, and trusted weekly grocery service.",
+    t("home.metaTitle"),
+    t("home.metaDescription"),
     { canonicalPath: "/" },
   );
   const { data: categories, isLoading: isCategoriesLoading } = useCategories();
@@ -59,27 +61,27 @@ export default function Home() {
           >
             <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm font-medium bg-muted text-muted-foreground mb-6 border border-border">
               <span className="flex w-2 h-2 rounded-full bg-primary mr-2"></span>
-              Fresh Arrivals This Week
+              {t("home.badge")}
             </div>
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-display font-bold tracking-tight text-balance leading-[1.1] mb-6">
-              Better Groceries <br className="hidden sm:block" />
-              <span className="text-muted-foreground">Delivered Fresh</span>
+              {t("home.heroTitleA")} <br className="hidden sm:block" />
+              <span className="text-muted-foreground">{t("home.heroTitleB")}</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl text-balance leading-relaxed">
-              Shop handpicked fruits and essential foods with dependable quality, fair pricing, and delivery you can trust.
+              {t("home.heroBody")}
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Button size="lg" className="rounded-full text-base h-14 px-8" asChild>
                 <Link href="/shop">
-                  Shop Fresh Produce <ArrowRight className="w-4 h-4 ml-2" />
+                  {t("home.shopFresh")} <ArrowRight className="w-4 h-4 ml-2" />
                 </Link>
               </Button>
               <Button size="lg" variant="outline" className="rounded-full text-base h-14 px-8 border-border" asChild>
-                <Link href="/shop?featured=true">View Best Sellers</Link>
+                <Link href="/shop?featured=true">{t("home.bestSellers")}</Link>
               </Button>
             </div>
             <p className="text-sm text-muted-foreground mt-5">
-              Fresh stock daily • Fast local delivery • Secure checkout
+              {t("home.heroFootnote")}
             </p>
           </motion.div>
           
@@ -105,10 +107,10 @@ export default function Home() {
       <section className="border-y border-border/60 bg-card/40">
         <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-6 px-4 sm:px-6 lg:px-8 py-8">
           {[
-            { value: "24h", label: "Fresh restock cycle" },
-            { value: "100+", label: "Products available" },
-            { value: "4.9/5", label: "Average customer rating" },
-            { value: "$100", label: "Free shipping threshold" },
+            { value: "24h", label: t("home.statRestock") },
+            { value: "100+", label: t("home.statProducts") },
+            { value: "4.9/5", label: t("home.statRating") },
+            { value: formatCurrency(100), label: t("home.statShipping") },
           ].map((item) => (
             <div key={item.label} className="rounded-2xl border border-border bg-background/80 px-5 py-4">
               <p className="font-display text-3xl font-bold">{item.value}</p>
@@ -123,8 +125,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-end mb-10">
             <div>
-              <h2 className="font-display text-3xl font-bold mb-2">Shop by Category</h2>
-              <p className="text-muted-foreground">Find exactly what you're looking for</p>
+              <h2 className="font-display text-3xl font-bold mb-2">{t("home.shopByCategory")}</h2>
+              <p className="text-muted-foreground">{t("home.findCategory")}</p>
             </div>
           </div>
           
@@ -154,7 +156,7 @@ export default function Home() {
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
                       <h3 className="font-display text-2xl font-bold text-white mb-2">{category.name}</h3>
                       <span className="inline-flex items-center text-white/80 text-sm font-medium opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
-                        Explore <ArrowRight className="w-4 h-4 ml-1" />
+                        {t("home.explore")} <ArrowRight className="w-4 h-4 ml-1" />
                       </span>
                     </div>
                   </motion.div>
@@ -170,11 +172,11 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-4">
             <div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold mb-3">Featured Products</h2>
-              <p className="text-muted-foreground max-w-xl">Customer favorites from our fruits and foods collection, selected for freshness and quality.</p>
+              <h2 className="font-display text-3xl md:text-4xl font-bold mb-3">{t("home.featuredTitle")}</h2>
+              <p className="text-muted-foreground max-w-xl">{t("home.featuredBody")}</p>
             </div>
             <Button variant="outline" className="rounded-full rounded-r-full shrink-0" asChild>
-              <Link href="/shop?featured=true">View All</Link>
+              <Link href="/shop?featured=true">{t("home.viewAll")}</Link>
             </Button>
           </div>
 
@@ -198,25 +200,25 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
             <div>
-              <h2 className="font-display text-3xl font-bold mb-2">Why Customers Trust UrugoBuy</h2>
+              <h2 className="font-display text-3xl font-bold mb-2">{t("home.whyTrust")}</h2>
               <p className="text-muted-foreground max-w-2xl">
-                Built for repeat grocery buying with visible pricing, safer checkout, and delivery expectations users can understand.
+                {t("home.whyTrustBody")}
               </p>
             </div>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
               {
-                title: "Clear order totals",
-                body: "Customers see shipping, taxes, discounts, and totals before they place the order.",
+                title: t("home.trustTotals"),
+                body: t("home.trustTotalsBody"),
               },
               {
-                title: "Reliable stock signals",
-                body: "Product pages and checkout both reflect stock availability so users avoid last-minute surprises.",
+                title: t("home.trustStock"),
+                body: t("home.trustStockBody"),
               },
               {
-                title: "Order tracking after purchase",
-                body: "Every completed order goes to a success page with item details, payment status, and fulfillment tracking.",
+                title: t("home.trustTracking"),
+                body: t("home.trustTrackingBody"),
               },
             ].map((item) => (
               <div key={item.title} className="rounded-3xl border border-border bg-muted/20 p-6">
@@ -233,8 +235,8 @@ export default function Home() {
         <section className="py-20 bg-background border-t border-border/50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mb-10">
-              <h2 className="font-display text-3xl font-bold mb-2">Recently Viewed</h2>
-              <p className="text-muted-foreground">Pick up where you left off.</p>
+              <h2 className="font-display text-3xl font-bold mb-2">{t("home.recentlyViewed")}</h2>
+              <p className="text-muted-foreground">{t("home.recentlyViewedBody")}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
               {recentlyViewedProducts.map((product) => (
@@ -248,10 +250,10 @@ export default function Home() {
       {/* Testimonials */}
       <section className="py-24 bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="font-display text-3xl font-bold mb-12 text-center">What Our Customers Say</h2>
+          <h2 className="font-display text-3xl font-bold mb-12 text-center">{t("home.testimonials")}</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { name: "Umwali ketia", role: "Customer", text: "The fruit quality is always excellent and delivery is right on time every week." },
+              { name: "Umwali ketia", role: t("home.customer"), text: "The fruit quality is always excellent and delivery is right on time every week." },
               { name: "Ganza Serge", role: "Home Cook", text: "Fresh ingredients and fair prices. It makes meal prep so much easier for my family." },
               { name: "Mvunije Cedric", role: "Fitness Coach", text: "I order weekly for clean eating plans. Produce arrives fresh and packed with care." }
             ].map((review, idx) => (
@@ -284,14 +286,14 @@ export default function Home() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-primary/10 to-transparent" />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 relative text-center">
           <Mail className="w-12 h-12 mx-auto mb-6 text-primary" />
-          <h2 className="font-display text-4xl md:text-5xl font-bold mb-4">Join the Club</h2>
+          <h2 className="font-display text-4xl md:text-5xl font-bold mb-4">{t("home.joinClub")}</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
-            Subscribe to receive updates, access to exclusive deals, and more. We respect your inbox.
+            {t("home.newsletterBody")}
           </p>
           <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
             <Input 
               type="email" 
-              placeholder="Enter your email address" 
+              placeholder={t("home.emailPlaceholder")} 
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -303,7 +305,7 @@ export default function Home() {
               disabled={subscribeMutation.isPending}
               className="h-14 rounded-full px-8"
             >
-              {subscribeMutation.isPending ? "Subscribing..." : "Subscribe"}
+              {subscribeMutation.isPending ? t("home.subscribing") : t("home.subscribe")}
             </Button>
           </form>
         </div>
