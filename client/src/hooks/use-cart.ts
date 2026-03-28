@@ -54,16 +54,22 @@ export const useCart = create<CartStore>()(
       
       removeItem: (productId) => {
         set((state) => ({
-          items: state.items.filter((item) => item.id !== productId),
+          items: state.items.filter((item) => Number(item.id) !== Number(productId)),
           lastUpdatedAt: Date.now(),
         }));
       },
       
       updateQuantity: (productId, quantity) => {
-        if (quantity < 1) return;
+        if (quantity < 1) {
+          set((state) => ({
+            items: state.items.filter((item) => Number(item.id) !== Number(productId)),
+            lastUpdatedAt: Date.now(),
+          }));
+          return;
+        }
         set((state) => ({
           items: state.items.map((item) =>
-            item.id === productId
+            Number(item.id) === Number(productId)
               ? { ...item, quantity: Math.min(quantity, item.stockQuantity) }
               : item
           ),

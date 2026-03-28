@@ -69,7 +69,7 @@ export default function Checkout() {
 
   const quoteItems = items.map((item) => ({ productId: item.id, quantity: item.quantity }));
   const hasItems = quoteItems.length > 0;
-  const { data: quote, isLoading: isQuoteLoading } = useCheckoutQuote(
+  const { data: quote, isLoading: isQuoteLoading, error: quoteError, refetch: refetchQuote } = useCheckoutQuote(
     {
       items: quoteItems,
       couponCode: form.couponCode || undefined,
@@ -287,7 +287,7 @@ export default function Checkout() {
       toast({
         variant: "destructive",
         title: t("checkout.failed"),
-        description: t("checkout.quoteRequired"),
+        description: quoteError instanceof Error ? quoteError.message : t("checkout.quoteRequired"),
       });
       return;
     }
@@ -444,6 +444,19 @@ export default function Checkout() {
                 {quote.market.customsNotice && (
                   <p className="mt-3 text-amber-700">{quote.market.customsNotice}</p>
                 )}
+              </div>
+            )}
+            {quoteError && !quote && (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm">
+                <p className="font-medium text-foreground">{t("checkout.quoteErrorTitle")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {quoteError instanceof Error ? quoteError.message : t("checkout.quoteRequired")}
+                </p>
+                <div className="mt-3">
+                  <Button type="button" variant="outline" size="sm" onClick={() => refetchQuote()}>
+                    {t("checkout.retryQuote")}
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -733,9 +746,9 @@ export default function Checkout() {
               {t("checkout.secureLine")}
             </div>
 
-            <Button type="submit" size="lg" className="w-full rounded-full h-12" disabled={createOrder.isPending || isQuoteLoading}>
+            <Button type="submit" size="lg" className="w-full rounded-full h-12" disabled={createOrder.isPending || isQuoteLoading || !quote || Boolean(quoteError)}>
               {createOrder.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wallet className="w-4 h-4 mr-2" />}
-              {createOrder.isPending ? t("checkout.processing") : primaryButtonLabel}
+              {createOrder.isPending ? t("checkout.processing") : isQuoteLoading ? t("checkout.loadingQuote") : primaryButtonLabel}
             </Button>
           </form>
 

@@ -91,8 +91,13 @@ export function CartSheet() {
                   <div className="flex flex-col flex-1 py-1">
                     <div className="flex justify-between items-start">
                       <h4 className="font-medium text-foreground line-clamp-1 pr-4">{item.name}</h4>
-                      <button 
-                        onClick={() => removeItem(item.id)}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          removeItem(item.id);
+                        }}
                         className="text-muted-foreground hover:text-destructive transition-colors p-1"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -105,9 +110,13 @@ export function CartSheet() {
                     
                     <div className="flex items-center space-x-3 mt-auto">
                       <div className="flex items-center border border-border rounded-full p-1 bg-background">
-                        <button 
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                          disabled={item.quantity <= 1}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            updateQuantity(item.id, item.quantity - 1);
+                          }}
                           className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-muted disabled:opacity-50"
                         >
                           <Minus className="w-3 h-3" />
@@ -115,8 +124,13 @@ export function CartSheet() {
                         <span className="w-8 text-center text-sm font-medium">
                           {item.quantity}
                         </span>
-                        <button 
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            updateQuantity(item.id, item.quantity + 1);
+                          }}
                           disabled={item.quantity >= item.stockQuantity}
                           className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-muted"
                         >
@@ -161,6 +175,7 @@ export function CartSheet() {
                         <Button
                           size="sm"
                           className="rounded-full"
+                          type="button"
                           onClick={() => addItem(product)}
                         >
                           {t("product.add")}
@@ -247,6 +262,7 @@ export function CartSheet() {
               <Button 
                 variant="ghost" 
                 className="w-full rounded-full" 
+                type="button"
                 onClick={() => {
                   clearCart();
                   setIsOpen(false);
