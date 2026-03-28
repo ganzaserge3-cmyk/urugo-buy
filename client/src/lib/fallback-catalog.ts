@@ -4,6 +4,7 @@ import { catalogCategorySeed, catalogProductSeed } from "@shared/catalog-seed";
 const fallbackCategories: Category[] = catalogCategorySeed.map((category, index) => ({
   id: index + 1,
   name: category.name,
+  nameTranslations: null,
   slug: category.slug,
   imageUrl: category.imageUrl,
 }));
@@ -13,7 +14,9 @@ const categoryIdBySlug = new Map(fallbackCategories.map((category) => [category.
 const fallbackProducts: Product[] = catalogProductSeed.map((product, index) => ({
   id: index + 1,
   name: product.name,
+  nameTranslations: null,
   description: product.description,
+  descriptionTranslations: null,
   price: product.price,
   imageUrl: product.imageUrl,
   imageGallery: product.imageGallery,

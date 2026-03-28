@@ -13,6 +13,7 @@ import Home from "@/pages/Home";
 import Shop from "@/pages/Shop";
 import ProductDetail from "@/pages/ProductDetail";
 import Checkout from "@/pages/Checkout";
+import PaymentStep from "@/pages/PaymentStep";
 import OrderSuccess from "@/pages/OrderSuccess";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -20,12 +21,17 @@ import AboutUs from "@/pages/AboutUs";
 import Careers from "@/pages/Careers";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsOfService";
+import ContactUs from "@/pages/ContactUs";
+import CompareProducts from "@/pages/CompareProducts";
 import Admin from "@/pages/Admin";
 import Account from "@/pages/Account";
 import SharedWishlist from "@/pages/SharedWishlist";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import ContentPage from "@/pages/ContentPage";
+import CategoryLanding from "@/pages/CategoryLanding";
+import TrackOrder from "@/pages/TrackOrder";
+import Deals from "@/pages/Deals";
 import { useAbandonedCartWatcher } from "@/hooks/use-abandoned-cart";
 import { I18nProvider } from "@/lib/i18n";
 
@@ -37,8 +43,11 @@ function Router() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/shop" element={<Shop />} />
+          <Route path="/category/:slug" element={<CategoryLanding />} />
+          <Route path="/compare" element={<CompareProducts />} />
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/checkout/payment/:id" element={<PaymentStep />} />
           <Route path="/order-success/:id" element={<OrderSuccess />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
@@ -46,6 +55,12 @@ function Router() {
           <Route path="/careers" element={<Careers />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-of-service" element={<TermsOfService />} />
+          <Route path="/contact-us" element={<ContactUs />} />
+          <Route path="/track-order" element={<TrackOrder />} />
+          <Route path="/deals" element={<Deals />} />
+          <Route path="/faq" element={<ContentPage forcedSlug="faq" />} />
+          <Route path="/shipping-delivery" element={<ContentPage forcedSlug="shipping-delivery" />} />
+          <Route path="/international-shopping" element={<ContentPage forcedSlug="international-shopping" />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/account" element={<Account />} />
           <Route path="/wishlist/:token" element={<SharedWishlist />} />

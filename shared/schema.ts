@@ -8,6 +8,7 @@ import { z } from "zod";
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  nameTranslations: text("name_translations"),
   slug: text("slug").notNull().unique(),
   imageUrl: text("image_url"),
 });
@@ -15,7 +16,9 @@ export const categories = pgTable("categories", {
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  nameTranslations: text("name_translations"),
   description: text("description").notNull(),
+  descriptionTranslations: text("description_translations"),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   imageUrl: text("image_url").notNull(),
   imageGallery: text("image_gallery").array().notNull().default([]),
@@ -79,6 +82,7 @@ export const orders = pgTable("orders", {
   orderNumber: text("order_number").notNull().unique(),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
+  customerPhone: text("customer_phone"),
   shippingAddress: text("shipping_address").notNull(),
   city: text("city").notNull(),
   country: text("country").notNull().default("USA"),
@@ -158,9 +162,22 @@ export const wishlistShares = pgTable("wishlist_shares", {
 export const supportTickets = pgTable("support_tickets", {
   id: serial("id").primaryKey(),
   userEmail: text("user_email"),
+  contactEmail: text("contact_email"),
   topic: text("topic").notNull(),
   message: text("message").notNull(),
   status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const savedAddresses = pgTable("saved_addresses", {
+  id: serial("id").primaryKey(),
+  userEmail: text("user_email").notNull(),
+  label: text("label").notNull(),
+  recipientName: text("recipient_name").notNull(),
+  shippingAddress: text("shipping_address").notNull(),
+  city: text("city").notNull(),
+  country: text("country").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -169,6 +186,10 @@ export const returnRequests = pgTable("return_requests", {
   orderId: integer("order_id").notNull().references(() => orders.id),
   userEmail: text("user_email").notNull(),
   reason: text("reason").notNull(),
+  resolution: text("resolution").default("refund"),
+  refundAmount: numeric("refund_amount", { precision: 10, scale: 2 }),
+  refundCurrency: text("refund_currency"),
+  adminNote: text("admin_note"),
   status: text("status").notNull().default("requested"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -216,8 +237,11 @@ export const contentPages = pgTable("content_pages", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
+  titleTranslations: text("title_translations"),
   description: text("description").notNull(),
+  descriptionTranslations: text("description_translations"),
   body: text("body").notNull(),
+  bodyTranslations: text("body_translations"),
   seoJsonLd: text("seo_json_ld"),
   published: boolean("published").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -227,8 +251,11 @@ export const blogPosts = pgTable("blog_posts", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
+  titleTranslations: text("title_translations"),
   excerpt: text("excerpt").notNull(),
+  excerptTranslations: text("excerpt_translations"),
   body: text("body").notNull(),
+  bodyTranslations: text("body_translations"),
   coverImageUrl: text("cover_image_url"),
   publishedAt: timestamp("published_at").notNull().defaultNow(),
   published: boolean("published").notNull().default(true),
@@ -265,12 +292,34 @@ export const orderMeta = pgTable("order_meta", {
   giftCardCode: text("gift_card_code"),
   giftCardDiscount: numeric("gift_card_discount", { precision: 10, scale: 2 }),
   deliverySlot: text("delivery_slot"),
+  shippingService: text("shipping_service"),
+  shipmentCarrier: text("shipment_carrier"),
+  trackingNumber: text("tracking_number"),
+  trackingUrl: text("tracking_url"),
+  shippingNote: text("shipping_note"),
+  shippedAt: timestamp("shipped_at"),
+  deliveredAt: timestamp("delivered_at"),
   paymentMethod: text("payment_method"),
   paymentStatus: text("payment_status"),
   marketCountry: text("market_country"),
   currencyCode: text("currency_code"),
   currencySymbol: text("currency_symbol"),
   exchangeRate: numeric("exchange_rate", { precision: 12, scale: 6 }),
+});
+
+export const paymentSessions = pgTable("payment_sessions", {
+  token: text("token").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => orders.id),
+  orderNumber: text("order_number").notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  currencyCode: text("currency_code").notNull().default("USD"),
+  method: text("method").notNull(),
+  provider: text("provider").notNull(),
+  providerOrderId: text("provider_order_id").unique(),
+  approvalUrl: text("approval_url"),
+  status: text("status").notNull().default("created"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const giftCards = pgTable("gift_cards", {
@@ -345,6 +394,7 @@ export const insertReferralClaimSchema = createInsertSchema(referralClaims).omit
 export const insertAccountPreferencesSchema = createInsertSchema(accountPreferences).omit({ updatedAt: true });
 export const insertWishlistShareSchema = createInsertSchema(wishlistShares).omit({ id: true, createdAt: true });
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true, createdAt: true });
+export const insertSavedAddressSchema = createInsertSchema(savedAddresses).omit({ id: true, createdAt: true });
 export const insertReturnRequestSchema = createInsertSchema(returnRequests).omit({ id: true, createdAt: true });
 export const insertTwoFactorChallengeSchema = createInsertSchema(twoFactorChallenges).omit({ id: true, createdAt: true });
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true });
@@ -360,6 +410,7 @@ export const insertCurrencyRateSchema = createInsertSchema(currencyRates).omit({
 export const insertCouponSchema = createInsertSchema(coupons).omit({ createdAt: true });
 export const insertGiftCardSchema = createInsertSchema(giftCards).omit({ createdAt: true });
 export const insertOrderMetaSchema = createInsertSchema(orderMeta);
+export const insertPaymentSessionSchema = createInsertSchema(paymentSessions).omit({ createdAt: true });
 export const insertNotificationLogSchema = createInsertSchema(notificationLogs).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
@@ -395,6 +446,8 @@ export type WishlistShare = typeof wishlistShares.$inferSelect;
 export type InsertWishlistShare = z.infer<typeof insertWishlistShareSchema>;
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+export type SavedAddress = typeof savedAddresses.$inferSelect;
+export type InsertSavedAddress = z.infer<typeof insertSavedAddressSchema>;
 export type ReturnRequest = typeof returnRequests.$inferSelect;
 export type InsertReturnRequest = z.infer<typeof insertReturnRequestSchema>;
 export type TwoFactorChallenge = typeof twoFactorChallenges.$inferSelect;
@@ -425,6 +478,8 @@ export type GiftCard = typeof giftCards.$inferSelect;
 export type InsertGiftCard = z.infer<typeof insertGiftCardSchema>;
 export type OrderMeta = typeof orderMeta.$inferSelect;
 export type InsertOrderMeta = z.infer<typeof insertOrderMetaSchema>;
+export type PaymentSessionRecord = typeof paymentSessions.$inferSelect;
+export type InsertPaymentSession = z.infer<typeof insertPaymentSessionSchema>;
 export type NotificationLog = typeof notificationLogs.$inferSelect;
 export type InsertNotificationLog = z.infer<typeof insertNotificationLogSchema>;
 

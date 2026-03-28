@@ -10,17 +10,38 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCart } from "@/hooks/use-cart";
+import { useProducts } from "@/hooks/use-products";
 import { Separator } from "@/components/ui/separator";
 import { normalizeProductImageUrl } from "@/lib/images";
 import { useI18n } from "@/lib/i18n";
+import { estimateImportCharges, getMarketGuide } from "@/lib/international";
 
 export function CartSheet() {
-  const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, clearCart } = useCart();
-  const { t, formatCurrency } = useI18n();
+  const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, clearCart, addItem } = useCart();
+  const { data: allProducts = [] } = useProducts();
+  const { market, t, formatCurrency } = useI18n();
   const subtotal = totalPrice();
   const freeShippingThreshold = 100;
   const amountUntilFreeShipping = Math.max(0, freeShippingThreshold - subtotal);
   const shippingProgress = Math.min(100, (subtotal / freeShippingThreshold) * 100);
+  const marketGuide = getMarketGuide(market.code);
+  const importEstimate = estimateImportCharges(subtotal, market.code);
+  const cartProductIds = new Set(items.map((item) => item.id));
+  const cartCategoryIds = new Set(items.map((item) => item.categoryId).filter((value): value is number => value !== null));
+
+  const suggestedProducts = allProducts
+    .filter((product) => !cartProductIds.has(product.id) && product.stockQuantity > 0)
+    .sort((a, b) => {
+      const aCategoryBoost = cartCategoryIds.has(a.categoryId ?? -1) ? 1 : 0;
+      const bCategoryBoost = cartCategoryIds.has(b.categoryId ?? -1) ? 1 : 0;
+      return (
+        bCategoryBoost - aCategoryBoost ||
+        Number(b.isFeatured) - Number(a.isFeatured) ||
+        Number(b.rating) - Number(a.rating) ||
+        Number(a.price) - Number(b.price)
+      );
+    })
+    .slice(0, 3);
 
   if (!isOpen && items.length === 0) return null;
 
@@ -113,6 +134,42 @@ export function CartSheet() {
         {items.length > 0 && (
           <div className="p-6 bg-muted/30 border-t border-border">
             <div className="space-y-3 mb-6">
+              {suggestedProducts.length > 0 && (
+                <div className="rounded-2xl border border-border bg-background/70 p-4">
+                  <div className="mb-3">
+                    <h3 className="font-display text-lg font-semibold">{t("cart.completeOrder")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("cart.completeOrderBody")}</p>
+                  </div>
+                  <div className="space-y-3">
+                    {suggestedProducts.map((product) => (
+                      <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background p-3">
+                        <div className="h-14 w-14 overflow-hidden rounded-xl bg-muted flex-shrink-0">
+                          <img
+                            src={normalizeProductImageUrl(product.imageUrl, product.id, {
+                              categoryId: product.categoryId,
+                              name: product.name,
+                              description: product.description,
+                            })}
+                            alt={product.name}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-1 font-medium">{product.name}</p>
+                          <p className="text-sm text-muted-foreground">{formatCurrency(product.price)}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="rounded-full"
+                          onClick={() => addItem(product)}
+                        >
+                          {t("product.add")}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="rounded-2xl border border-border bg-background/70 p-4">
                 <div className="flex items-center justify-between text-sm mb-2">
                   <span className="font-medium">{t("cart.freeShippingProgress")}</span>
@@ -126,6 +183,45 @@ export function CartSheet() {
                     ? t("cart.addMore", { amount: formatCurrency(amountUntilFreeShipping) })
                     : t("cart.unlocked")}
                 </p>
+              </div>
+              <div className="rounded-2xl border border-border bg-background/70 p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="font-medium">{t("intl.landedCostTitle")}</h3>
+                  <span className="text-xs text-muted-foreground">
+                    {t("intl.deliveryWindow", {
+                      min: marketGuide.deliveryDays[0],
+                      max: marketGuide.deliveryDays[1],
+                    })}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t(`intl.clearance.${marketGuide.clearanceLabel}`)}
+                </p>
+                <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                  <div className="flex justify-between">
+                    <span>{t("intl.goodsValue")}</span>
+                    <span>{formatCurrency(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("intl.dutyEstimate")}</span>
+                    <span>{formatCurrency(importEstimate.dutyEstimate)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("intl.handlingEstimate")}</span>
+                    <span>{formatCurrency(importEstimate.handlingEstimate)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-2 font-medium text-foreground">
+                    <span>{t("intl.estimatedLandedTotal")}</span>
+                    <span>{formatCurrency(importEstimate.landedTotalEstimate)}</span>
+                  </div>
+                </div>
+                {marketGuide.customsThreshold !== undefined && (
+                  <p className="mt-3 text-xs text-amber-700">
+                    {t("intl.customsThreshold", {
+                      amount: formatCurrency(marketGuide.customsThreshold),
+                    })}
+                  </p>
+                )}
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>{t("cart.subtotal")}</span>

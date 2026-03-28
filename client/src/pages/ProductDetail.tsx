@@ -16,6 +16,8 @@ import { useSeo } from "@/hooks/use-seo";
 import { authFetch } from "@/lib/auth";
 import { buildProductImageGallery, normalizeProductImageUrl } from "@/lib/images";
 import { useI18n } from "@/lib/i18n";
+import { getCompareProductIds, saveCompareProductIds } from "@/lib/compare";
+import { estimateImportCharges, getMarketGuide } from "@/lib/international";
 
 export default function ProductDetail() {
   const params = useParams();
@@ -25,7 +27,7 @@ export default function ProductDetail() {
   const { data: bundles = [] } = useBundleSuggestions(id);
   const { addItem } = useCart();
   const { toast } = useToast();
-  const { t, formatCurrency, formatNumber, formatDateTime } = useI18n();
+  const { market, t, formatCurrency, formatNumber, formatDateTime } = useI18n();
   const { user } = useAuth();
   const isOutOfStock = product ? product.stockQuantity <= 0 : false;
   const [imageSrc, setImageSrc] = useState<string>("");
@@ -34,8 +36,8 @@ export default function ProductDetail() {
   const [reviewPhotoUrl, setReviewPhotoUrl] = useState("");
   const [reviewVideoUrl, setReviewVideoUrl] = useState("");
   const [compareIds, setCompareIds] = useState<number[]>([]);
-  const [selectedSize, setSelectedSize] = useState("Standard");
-  const [selectedPack, setSelectedPack] = useState("Single");
+  const [selectedSize, setSelectedSize] = useState("standard");
+  const [selectedPack, setSelectedPack] = useState("single");
   const [quantity, setQuantity] = useState(1);
   const [helpfulVotes, setHelpfulVotes] = useState<Record<number, number>>({});
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
@@ -60,10 +62,26 @@ export default function ProductDetail() {
     name: product?.name,
     description: product?.description,
   }), [product?.categoryId, product?.description, product?.name]);
+  const reviewAverage = reviews.length > 0
+    ? reviews.reduce((sum: number, review: { rating: number }) => sum + Number(review.rating || 0), 0) / reviews.length
+    : 0;
+  const verifiedReviewCount = reviews.filter((review: { verifiedPurchase?: boolean }) => review.verifiedPurchase).length;
+  const mediaReviewCount = reviews.filter((review: { photoUrl?: string | null; videoUrl?: string | null }) => review.photoUrl || review.videoUrl).length;
+  const marketGuide = getMarketGuide(market.code);
+  const landedEstimate = estimateImportCharges(Number(product?.price || 0) * quantity, market.code);
+
+  const maskEmail = (value: string) => {
+    const [local, domain] = value.split("@");
+    if (!local || !domain) return value;
+    const safeLocal = local.length <= 2
+      ? `${local[0] || ""}*`
+      : `${local.slice(0, 2)}${"*".repeat(Math.max(1, local.length - 2))}`;
+    return `${safeLocal}@${domain}`;
+  };
 
   useSeo(
-    product ? `${product.name} - UrugoBuy` : "Product - UrugoBuy",
-    product ? product.description : "View product details, reviews, and recommendations.",
+    product ? `${product.name} - UrugoBuy` : t("product.metaTitle"),
+    product ? product.description : t("product.metaDescription"),
     { canonicalPath: product ? `/product/${product.id}` : "/shop" },
   );
 
@@ -102,16 +120,7 @@ export default function ProductDetail() {
   }, [product?.id]);
 
   useEffect(() => {
-    const raw = localStorage.getItem("compare-products");
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setCompareIds(parsed.filter((n) => Number.isFinite(n)));
-      }
-    } catch {
-      setCompareIds([]);
-    }
+    setCompareIds(getCompareProductIds());
   }, []);
 
   useEffect(() => {
@@ -137,8 +146,8 @@ export default function ProductDetail() {
 
   if (!product) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center pt-20 text-center px-4">
-        <h1 className="font-display text-4xl font-bold mb-4">Product Not Found</h1>
+        <div className="min-h-screen flex flex-col items-center justify-center pt-20 text-center px-4">
+        <h1 className="font-display text-4xl font-bold mb-4">{t("product.notFoundTitle")}</h1>
         <p className="text-muted-foreground mb-8">{t("product.notFound")}</p>
         <Button asChild className="rounded-full"><Link href="/shop">{t("product.backToShop")}</Link></Button>
       </div>
@@ -170,8 +179,8 @@ export default function ProductDetail() {
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Wishlist update failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        title: t("product.wishlistFailed"),
+        description: error instanceof Error ? error.message : t("common.tryAgain"),
       });
     }
   };
@@ -194,8 +203,8 @@ export default function ProductDetail() {
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Alert failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        title: t("product.alertFailed"),
+        description: error instanceof Error ? error.message : t("common.tryAgain"),
       });
     }
   };
@@ -217,15 +226,15 @@ export default function ProductDetail() {
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Review failed",
-        description: error instanceof Error ? error.message : "Please login and try again",
+        title: t("product.reviewFailed"),
+        description: error instanceof Error ? error.message : t("product.reviewFailedBody"),
       });
     }
   };
 
   const inCompare = compareIds.includes(product.id);
   const hasMultipleImages = productImages.length > 1;
-  const variantStock = Math.max(0, product.stockQuantity - (selectedPack === "Family Pack" ? 2 : 0));
+  const variantStock = Math.max(0, product.stockQuantity - (selectedPack === "family" ? 2 : 0));
   useEffect(() => {
     setQuantity((prev) => Math.max(1, Math.min(prev, Math.max(1, variantStock))));
   }, [variantStock]);
@@ -249,7 +258,7 @@ export default function ProductDetail() {
       ? compareIds.filter((idValue) => idValue !== product.id)
       : [...compareIds, product.id].slice(-4);
     setCompareIds(next);
-    localStorage.setItem("compare-products", JSON.stringify(next));
+    saveCompareProductIds(next);
   };
 
   const handleHelpfulVote = (reviewId: number) => {
@@ -264,7 +273,7 @@ export default function ProductDetail() {
       body: JSON.stringify({ question: questionText }),
     });
     if (!res.ok) {
-      toast({ variant: "destructive", title: "Question failed" });
+      toast({ variant: "destructive", title: t("product.questionFailed") });
       return;
     }
     setQuestionText("");
@@ -281,12 +290,12 @@ export default function ProductDetail() {
       body: JSON.stringify({ answer }),
     });
     if (!res.ok) {
-      toast({ variant: "destructive", title: "Answer failed" });
+      toast({ variant: "destructive", title: t("product.answerFailed") });
       return;
     }
     toast({
-      title: "Answer posted",
-      description: "Your reply is now visible in the product conversation.",
+      title: t("product.answerPosted"),
+      description: t("product.answerPostedBody"),
     });
     setAnswerDrafts((prev) => ({ ...prev, [questionId]: "" }));
     const rows = await fetch(`/api/products/${product.id}/questions`).then((r) => (r.ok ? r.json() : []));
@@ -318,7 +327,7 @@ export default function ProductDetail() {
                     type="button"
                     onClick={goToPrevImage}
                     className="absolute left-3 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/80 border border-border flex items-center justify-center hover:bg-background transition"
-                    aria-label="Previous product image"
+                    aria-label={t("product.previousImage")}
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
@@ -326,7 +335,7 @@ export default function ProductDetail() {
                     type="button"
                     onClick={goToNextImage}
                     className="absolute right-3 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/80 border border-border flex items-center justify-center hover:bg-background transition"
-                    aria-label="Next product image"
+                    aria-label={t("product.nextImage")}
                   >
                     <ChevronRight className="w-5 h-5" />
                   </button>
@@ -336,7 +345,7 @@ export default function ProductDetail() {
                         key={`${product.id}-dot-${index}`}
                         type="button"
                         onClick={() => goToImage(index)}
-                        aria-label={`View product image ${index + 1}`}
+                        aria-label={t("product.viewImage", { count: index + 1 })}
                         className={`h-2.5 w-2.5 rounded-full transition ${index === activeImageIndex ? "bg-primary" : "bg-background/70"}`}
                       />
                     ))}
@@ -352,7 +361,7 @@ export default function ProductDetail() {
                     type="button"
                     onClick={() => goToImage(index)}
                     className={`aspect-square rounded-xl overflow-hidden border-2 transition ${index === activeImageIndex ? "border-primary" : "border-border"}`}
-                    aria-label={`Select thumbnail ${index + 1}`}
+                    aria-label={t("product.selectThumbnail", { count: index + 1 })}
                   >
                     <img
                       src={image}
@@ -401,38 +410,38 @@ export default function ProductDetail() {
             </p>
             <div className="grid sm:grid-cols-2 gap-3 mb-6">
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Size</p>
+                <p className="text-sm text-muted-foreground mb-2">{t("product.size")}</p>
                 <select
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={selectedSize}
                   onChange={(e) => setSelectedSize(e.target.value)}
                 >
-                  <option value="Standard">Standard</option>
-                  <option value="Large">Large</option>
-                  <option value="XL">XL</option>
+                  <option value="standard">{t("product.sizeStandard")}</option>
+                  <option value="large">{t("product.sizeLarge")}</option>
+                  <option value="xl">{t("product.sizeXl")}</option>
                 </select>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Pack</p>
+                <p className="text-sm text-muted-foreground mb-2">{t("product.pack")}</p>
                 <select
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={selectedPack}
                   onChange={(e) => setSelectedPack(e.target.value)}
                 >
-                  <option value="Single">Single</option>
-                  <option value="2-Pack">2-Pack</option>
-                  <option value="Family Pack">Family Pack</option>
+                  <option value="single">{t("product.packSingle")}</option>
+                  <option value="double">{t("product.packDouble")}</option>
+                  <option value="family">{t("product.packFamily")}</option>
                 </select>
               </div>
             </div>
             <div className="mb-6">
-              <p className="text-sm text-muted-foreground mb-2">Quantity</p>
+              <p className="text-sm text-muted-foreground mb-2">{t("product.quantity")}</p>
               <div className="inline-flex items-center rounded-full border border-border bg-background p-1">
                 <button
                   type="button"
                   onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
                   className="h-9 w-9 rounded-full hover:bg-muted transition"
-                  aria-label="Decrease quantity"
+                  aria-label={t("product.decreaseQuantity")}
                 >
                   -
                 </button>
@@ -441,7 +450,7 @@ export default function ProductDetail() {
                   type="button"
                   onClick={() => setQuantity((prev) => Math.min(Math.max(1, variantStock), prev + 1))}
                   className="h-9 w-9 rounded-full hover:bg-muted transition"
-                  aria-label="Increase quantity"
+                  aria-label={t("product.increaseQuantity")}
                   disabled={variantStock <= 0}
                 >
                   +
@@ -449,21 +458,63 @@ export default function ProductDetail() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-8">
-              Variant stock: {variantStock} available
+              {t("product.variantStock", { count: variantStock })}
             </p>
+            <div className="mb-8 rounded-3xl border border-border bg-muted/20 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{t("intl.productDeliveryTitle")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("intl.deliveryWindow", {
+                      min: marketGuide.deliveryDays[0],
+                      max: marketGuide.deliveryDays[1],
+                    })}
+                  </p>
+                </div>
+                <span className="rounded-full bg-background px-3 py-1 text-xs text-muted-foreground">
+                  {t(`intl.clearance.${marketGuide.clearanceLabel}`)}
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-border bg-background/80 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("intl.goodsValue")}</p>
+                  <p className="mt-1 font-medium">{formatCurrency(Number(product.price) * quantity)}</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-background/80 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("intl.dutyEstimate")}</p>
+                  <p className="mt-1 font-medium">{formatCurrency(landedEstimate.dutyEstimate)}</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-background/80 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("intl.estimatedLandedTotal")}</p>
+                  <p className="mt-1 font-medium">{formatCurrency(landedEstimate.landedTotalEstimate)}</p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm text-muted-foreground">
+                {marketGuide.taxIncluded
+                  ? t("intl.taxIncluded")
+                  : t("intl.taxExcluded")}
+              </p>
+              {marketGuide.customsThreshold !== undefined && (
+                <p className="mt-2 text-sm text-amber-700">
+                  {t("intl.customsThreshold", {
+                    amount: formatCurrency(marketGuide.customsThreshold),
+                  })}
+                </p>
+              )}
+            </div>
             
             <div className="space-y-4 mb-10">
               <div className="flex items-center text-sm text-muted-foreground">
                 <Check className="w-5 h-5 text-green-500 mr-3 shrink-0" />
-                Premium materials and build quality
+                {t("product.benefit1")}
               </div>
               <div className="flex items-center text-sm text-muted-foreground">
                 <ShieldCheck className="w-5 h-5 text-green-500 mr-3 shrink-0" />
-                2-year extended warranty included
+                {t("product.benefit2")}
               </div>
               <div className="flex items-center text-sm text-muted-foreground">
                 <Package className="w-5 h-5 text-green-500 mr-3 shrink-0" />
-                Free express shipping on orders over $50
+                {t("product.benefit3")}
               </div>
             </div>
             
@@ -476,14 +527,14 @@ export default function ProductDetail() {
               {inWishlist ? t("product.removeFromWishlist") : t("product.addToWishlist")}
             </Button>
             <Button onClick={toggleCompare} variant="outline" size="lg" className="w-full h-12 rounded-full mt-3">
-              {inCompare ? "Remove from Compare" : "Add to Compare"}
+              {inCompare ? t("product.removeFromCompare") : t("product.addToCompare")}
             </Button>
             <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
               <Input
                 type="number"
                 min={0}
                 step="0.01"
-                placeholder="Target price (optional)"
+                placeholder={t("product.targetPrice")}
                 value={alertTargetPrice}
                 onChange={(e) => setAlertTargetPrice(e.target.value)}
               />
@@ -493,7 +544,7 @@ export default function ProductDetail() {
                 onClick={handleWatchAlert}
                 disabled={watchProductAlert.isPending}
               >
-                Track Alert
+                {t("product.trackAlert")}
               </Button>
             </div>
             <Button
@@ -506,16 +557,30 @@ export default function ProductDetail() {
                   await navigator.share({ title: product.name, url }).catch(() => undefined);
                 } else {
                   await navigator.clipboard.writeText(url);
-                  toast({ title: "Product link copied" });
+                  toast({ title: t("product.linkCopied") });
                 }
               }}
             >
-              Share Product
+              {t("product.shareProduct")}
             </Button>
           </div>
         </div>
         <section className="mt-14 border-t border-border pt-10">
-          <h2 className="font-display text-3xl font-bold mb-4">Customer Reviews</h2>
+          <h2 className="font-display text-3xl font-bold mb-4">{t("product.customerReviews")}</h2>
+          <div className="grid gap-3 md:grid-cols-3 mb-6">
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm text-muted-foreground">{t("product.rating")}</p>
+              <p className="font-display text-3xl font-bold">{reviews.length > 0 ? formatNumber(reviewAverage) : "0.0"}/5</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm text-muted-foreground">{t("product.verifiedPurchase")}</p>
+              <p className="font-display text-3xl font-bold">{verifiedReviewCount}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm text-muted-foreground">Photo / video reviews</p>
+              <p className="font-display text-3xl font-bold">{mediaReviewCount}</p>
+            </div>
+          </div>
           <form onSubmit={handleSubmitReview} className="grid md:grid-cols-[120px_1fr_auto] gap-3 mb-6">
             <Input
               type="number"
@@ -526,50 +591,53 @@ export default function ProductDetail() {
               disabled={!user}
             />
             <Input
-              placeholder={user ? "Write your review..." : "Login to leave a review"}
+              placeholder={user ? t("product.writeReview") : t("product.loginToReview")}
               value={reviewComment}
               onChange={(e) => setReviewComment(e.target.value)}
               disabled={!user}
               required
             />
+            <p className="md:col-span-3 text-xs text-muted-foreground">
+              Share what arrived, how fresh it was, and whether delivery matched expectations.
+            </p>
             <Input
-              placeholder="Photo URL (optional)"
+              placeholder={t("product.photoUrl")}
               value={reviewPhotoUrl}
               onChange={(e) => setReviewPhotoUrl(e.target.value)}
               disabled={!user}
             />
             <Input
-              placeholder="Video URL (optional)"
+              placeholder={t("product.videoUrl")}
               value={reviewVideoUrl}
               onChange={(e) => setReviewVideoUrl(e.target.value)}
               disabled={!user}
             />
-            <Button type="submit" disabled={!user || createReview.isPending}>Submit</Button>
+            <Button type="submit" disabled={!user || createReview.isPending}>{t("product.submit")}</Button>
           </form>
           <div className="space-y-3">
             {reviews.length === 0 ? (
-              <p className="text-muted-foreground">No reviews yet.</p>
+              <p className="text-muted-foreground">{t("product.noReviews")}</p>
             ) : (
               reviews.map((review: { id: number; userEmail: string; rating: number; comment: string; photoUrl?: string | null; videoUrl?: string | null; verifiedPurchase?: boolean }) => (
                 <div key={review.id} className="border border-border rounded-xl p-4">
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">{review.userEmail}</p>
+                    <p className="font-medium">{maskEmail(review.userEmail)}</p>
                     {review.verifiedPurchase ? (
-                      <span className="text-xs rounded-full bg-muted px-2 py-1">Verified purchase</span>
+                      <span className="text-xs rounded-full bg-muted px-2 py-1">{t("product.verifiedPurchase")}</span>
                     ) : (
-                      <span className="text-xs rounded-full bg-muted px-2 py-1">Unverified</span>
+                      <span className="text-xs rounded-full bg-muted px-2 py-1">{t("product.unverifiedPurchase")}</span>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">{t("product.rating")}: {formatNumber(review.rating)}/5</p>
                   <p className="mt-2">{review.comment}</p>
                   {review.photoUrl && (
-                    <img src={review.photoUrl} alt="Review upload" className="mt-3 h-24 w-24 rounded-md object-cover border border-border" />
+                    <img src={review.photoUrl} alt={t("product.reviewUpload")} className="mt-3 h-24 w-24 rounded-md object-cover border border-border" />
                   )}
                   {review.videoUrl && (
                     <video src={review.videoUrl} controls className="mt-3 h-32 w-56 rounded-md border border-border bg-black" />
                   )}
                   <Button variant="ghost" size="sm" className="mt-3" onClick={() => handleHelpfulVote(review.id)}>
-                    Helpful ({helpfulVotes[review.id] || 0})
+                    {t("product.helpful", { count: helpfulVotes[review.id] || 0 })}
                   </Button>
                 </div>
               ))
@@ -577,46 +645,46 @@ export default function ProductDetail() {
           </div>
         </section>
         <section className="mt-14 border-t border-border pt-10">
-          <h2 className="font-display text-3xl font-bold mb-2">Product Conversation</h2>
-          <p className="text-sm text-muted-foreground mb-4">Customers ask about this product here. You can answer directly inside the app.</p>
+          <h2 className="font-display text-3xl font-bold mb-2">{t("product.conversationTitle")}</h2>
+          <p className="text-sm text-muted-foreground mb-4">{t("product.conversationBody")}</p>
           <form onSubmit={submitQuestion} className="flex gap-2 mb-6">
             <Input
-              placeholder="Ask about this product..."
+              placeholder={t("product.askPlaceholder")}
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
               required
             />
-            <Button type="submit">Ask</Button>
+            <Button type="submit">{t("product.ask")}</Button>
           </form>
           <div className="space-y-3">
             {questions.length === 0 ? (
-              <p className="text-muted-foreground">No messages yet.</p>
+              <p className="text-muted-foreground">{t("product.noMessages")}</p>
             ) : (
               questions.map((item) => (
                 <div key={item.id} className="border border-border rounded-xl p-4">
                   <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="font-medium mb-1">Customer</p>
+                    <p className="font-medium mb-1">{t("product.customerLabel")}</p>
                     <p>{item.question}</p>
                   </div>
                   {item.answer ? (
                     <div className="mt-3 rounded-2xl bg-primary/10 px-4 py-3 text-foreground">
-                      <p className="font-medium mb-1">Store reply</p>
+                      <p className="font-medium mb-1">{t("product.storeReply")}</p>
                       <p>{item.answer}</p>
                       <p className="text-xs mt-2 text-muted-foreground">
                         {item.answeredAt ? t("product.answeredOn", { date: formatDateTime(item.answeredAt) }) : t("product.answered")}
                       </p>
                     </div>
                   ) : (
-                    <p className="mt-2 text-muted-foreground">Awaiting answer</p>
+                    <p className="mt-2 text-muted-foreground">{t("product.awaitingAnswer")}</p>
                   )}
                   {user?.role === "admin" && !item.answer && (
                     <div className="flex gap-2 mt-3">
                       <Input
-                        placeholder="Write answer"
+                        placeholder={t("product.writeAnswer")}
                         value={answerDrafts[item.id] || ""}
                         onChange={(e) => setAnswerDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
                       />
-                      <Button type="button" onClick={() => answerQuestion(item.id)}>Reply</Button>
+                      <Button type="button" onClick={() => answerQuestion(item.id)}>{t("product.reply")}</Button>
                     </div>
                   )}
                 </div>
@@ -626,15 +694,15 @@ export default function ProductDetail() {
         </section>
         {compared.length >= 2 && (
           <section className="mt-14 border-t border-border pt-10">
-            <h2 className="font-display text-3xl font-bold mb-4">Compare Products</h2>
+            <h2 className="font-display text-3xl font-bold mb-4">{t("product.compareTitle")}</h2>
             <div className="overflow-x-auto border border-border rounded-xl">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/30">
-                    <th className="text-left p-3">Product</th>
-                    <th className="text-left p-3">Price</th>
-                    <th className="text-left p-3">Rating</th>
-                    <th className="text-left p-3">Stock</th>
+                    <th className="text-left p-3">{t("product.tableProduct")}</th>
+                    <th className="text-left p-3">{t("product.tablePrice")}</th>
+                    <th className="text-left p-3">{t("product.tableRating")}</th>
+                    <th className="text-left p-3">{t("product.tableStock")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -653,13 +721,13 @@ export default function ProductDetail() {
         )}
         {bundles.length > 0 && (
           <section className="mt-14 border-t border-border pt-10">
-            <h2 className="font-display text-3xl font-bold mb-6">Frequently Bought Together</h2>
+            <h2 className="font-display text-3xl font-bold mb-6">{t("product.frequentlyBought")}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {bundles.map((item: any) => (
                 <div key={`bundle-${item.id}`} className="space-y-2">
                   <ProductCard product={item} />
                   <p className="text-xs text-muted-foreground">
-                    Bought together {item.pairCount} times
+                    {t("product.boughtTogether", { count: item.pairCount })}
                   </p>
                 </div>
               ))}
@@ -668,7 +736,7 @@ export default function ProductDetail() {
         )}
         {recommended.length > 0 && (
           <section className="mt-14 border-t border-border pt-10">
-            <h2 className="font-display text-3xl font-bold mb-6">You May Also Like</h2>
+            <h2 className="font-display text-3xl font-bold mb-6">{t("product.youMayAlsoLike")}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {recommended.map((rec: any) => (
                 <ProductCard key={rec.id} product={rec} />

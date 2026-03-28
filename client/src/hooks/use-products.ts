@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
+import { getStoredLanguageCode } from "@/lib/i18n";
 import {
   getFallbackProduct,
   getFallbackProducts,
@@ -17,8 +18,9 @@ interface UseProductsParams {
 }
 
 export function useProducts(params?: UseProductsParams) {
+  const lang = getStoredLanguageCode();
   return useQuery({
-    queryKey: [api.products.list.path, params],
+    queryKey: [api.products.list.path, params, lang],
     queryFn: async () => {
       try {
         const hasSearch = Boolean(params?.search && params.search.trim().length > 0);
@@ -31,8 +33,9 @@ export function useProducts(params?: UseProductsParams) {
             minPrice: params?.minPrice as number,
             maxPrice: params?.maxPrice as number,
             sort: params?.sort as string,
+            lang,
           } as Record<string, string | number | boolean>)
-          : buildUrl(api.products.list.path, params as Record<string, string | number | boolean>);
+          : buildUrl(api.products.list.path, { ...(params || {}), lang } as Record<string, string | number | boolean>);
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to fetch products");
         const data = await res.json();
@@ -45,11 +48,12 @@ export function useProducts(params?: UseProductsParams) {
 }
 
 export function useProduct(id: number) {
+  const lang = getStoredLanguageCode();
   return useQuery({
-    queryKey: [api.products.get.path, id],
+    queryKey: [api.products.get.path, id, lang],
     queryFn: async () => {
       try {
-        const url = buildUrl(api.products.get.path, { id });
+        const url = buildUrl(api.products.get.path, { id, lang: getStoredLanguageCode() });
         const res = await fetch(url);
         if (res.status === 404) return null;
         if (!res.ok) throw new Error("Failed to fetch product");
@@ -106,11 +110,12 @@ export function useBundleSuggestions(productId: number) {
 }
 
 export function useSearchSuggestions(query: string) {
+  const lang = getStoredLanguageCode();
   return useQuery({
-    queryKey: ["search-suggest", query],
+    queryKey: ["search-suggest", query, lang],
     queryFn: async () => {
       try {
-        const res = await fetch(`/api/search/suggest?q=${encodeURIComponent(query)}`);
+        const res = await fetch(`/api/search/suggest?q=${encodeURIComponent(query)}&lang=${encodeURIComponent(lang)}`);
         if (!res.ok) throw new Error("Failed to load suggestions");
         return res.json() as Promise<Array<{ id: number; name: string; price: string; categoryId?: number | null }>>;
       } catch {

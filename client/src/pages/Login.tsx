@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LogIn } from "lucide-react";
+import { Chrome, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +16,7 @@ export default function Login() {
   useSeo(t("auth.loginMetaTitle"), t("auth.loginMetaDescription"), { canonicalPath: "/login" });
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const firebaseEnabled = Boolean(auth);
 
   const [email, setEmail] = useState("");
@@ -37,7 +37,27 @@ export default function Login() {
       toast({
         variant: "destructive",
         title: t("auth.loginFailed"),
-        description: error instanceof Error ? error.message : "Something went wrong.",
+        description: error instanceof Error ? error.message : t("common.somethingWentWrong"),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      await loginWithGoogle();
+      toast({
+        title: t("auth.loggedIn"),
+        description: t("auth.welcomeBack"),
+      });
+      setLocation("/");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: t("auth.loginFailed"),
+        description: error instanceof Error ? error.message : t("common.somethingWentWrong"),
       });
     } finally {
       setIsLoading(false);
@@ -94,6 +114,10 @@ export default function Login() {
           <Button type="submit" className="w-full rounded-full" disabled={isLoading || !firebaseEnabled}>
             <LogIn className="w-4 h-4 mr-2" />
             {isLoading ? t("auth.signingIn") : t("auth.signInEmail")}
+          </Button>
+          <Button type="button" variant="outline" className="w-full rounded-full" disabled={isLoading || !firebaseEnabled} onClick={handleGoogleLogin}>
+            <Chrome className="w-4 h-4 mr-2" />
+            {t("auth.continueWithGoogle")}
           </Button>
         </form>
 

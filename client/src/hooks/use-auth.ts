@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, GoogleAuthProvider, onIdTokenChanged, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile } from "firebase/auth";
 import { auth, ensureFirebaseAuth } from "@/lib/firebase";
 
 const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || "ganzaserge3@gmail.com").toLowerCase();
@@ -28,7 +28,22 @@ interface AuthStore {
   token: string | null;
   login: (input: LoginInput) => Promise<void>;
   signup: (input: SignupInput) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => void;
+}
+
+async function syncFirebaseCustomerProfile(idToken: string, fallbackName: string, fallbackEmail: string) {
+  await fetch("/api/auth/firebase-sync", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer firebase-id:${idToken}`,
+    },
+    body: JSON.stringify({
+      name: fallbackName,
+      email: fallbackEmail,
+    }),
+  }).catch(() => undefined);
 }
 
 export const useAuth = create<AuthStore>()(
@@ -68,6 +83,11 @@ export const useAuth = create<AuthStore>()(
           const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
           const fbUser = credential.user;
           const idToken = await fbUser.getIdToken();
+          await syncFirebaseCustomerProfile(
+            idToken,
+            fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
+            fbUser.email || email,
+          );
           set({
             user: {
               name: fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
@@ -101,10 +121,32 @@ export const useAuth = create<AuthStore>()(
         }
         const fbUser = credential.user;
         const idToken = await fbUser.getIdToken();
+        await syncFirebaseCustomerProfile(idToken, fbUser.displayName || name, fbUser.email || email);
         set({
           user: {
             name: fbUser.displayName || name,
             email: fbUser.email || email,
+            role: "customer",
+          },
+          token: `firebase-id:${idToken}`,
+        });
+      },
+      loginWithGoogle: async () => {
+        const firebaseAuth = ensureFirebaseAuth();
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        const credential = await signInWithPopup(firebaseAuth, provider);
+        const fbUser = credential.user;
+        const idToken = await fbUser.getIdToken();
+        await syncFirebaseCustomerProfile(
+          idToken,
+          fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
+          fbUser.email || "",
+        );
+        set({
+          user: {
+            name: fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
+            email: fbUser.email || "",
             role: "customer",
           },
           token: `firebase-id:${idToken}`,
@@ -130,3 +172,25 @@ export const useAuth = create<AuthStore>()(
     },
   ),
 );
+
+if (auth) {
+  onIdTokenChanged(auth, async (fbUser) => {
+    if (!fbUser) {
+      const currentToken = useAuth.getState().token;
+      if (currentToken?.startsWith("firebase-id:")) {
+        useAuth.setState({ user: null, token: null });
+      }
+      return;
+    }
+
+    const idToken = await fbUser.getIdToken();
+    useAuth.setState({
+      user: {
+        name: fbUser.displayName || fbUser.email?.split("@")[0] || "Customer",
+        email: fbUser.email || "",
+        role: "customer",
+      },
+      token: `firebase-id:${idToken}`,
+    });
+  });
+}

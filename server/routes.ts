@@ -8,6 +8,20 @@ import { z } from "zod";
 import { db } from "./db";
 import { computeCouponDiscount, roundCurrency } from "./lib/pricing";
 import { signSessionToken, verifySessionToken } from "./lib/jwt";
+import { signOrderAccessToken, verifyOrderAccessToken } from "./lib/order-access";
+import {
+  capturePaymentSession,
+  createPaymentSession,
+  failPaymentSession,
+  getLatestActivePaymentSessionForOrder,
+  getPaymentSession,
+  getPaymentSessionByProviderOrderId,
+  getPaymentSessionView,
+  isOnlinePaymentMethod,
+  type OnlinePaymentMethod,
+  verifyDemoWebhook,
+  verifyPayPalWebhook,
+} from "./lib/payments";
 import {
   accountPreferences,
   blogPosts,
@@ -30,6 +44,7 @@ import {
   returnStatusEvents,
   returnRequests,
   riskAssessments,
+  savedAddresses,
   subscriptions,
   vendors,
   supportTickets,
@@ -38,7 +53,7 @@ import {
   users,
   wishlists,
 } from "@shared/schema";
-import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, lte, sql } from "drizzle-orm";
 
 type UserRole = "customer" | "admin";
 
@@ -70,6 +85,12 @@ function isValidMediaUrl(value: string): boolean {
 const mediaUrlSchema = z.string().trim().refine(isValidMediaUrl, {
   message: "Media URL must be an absolute http(s) URL or an app-relative path",
 });
+const optionalMediaUrlSchema = z.union([mediaUrlSchema, z.literal("")]).optional().transform((value) => value || null);
+
+const localizedTextInputSchema = z.record(
+  z.enum(["en", "fr", "ar", "rw"]),
+  z.string().trim().min(1).max(5000),
+).optional();
 
 const deliverySlots = [
   { id: "today-evening", label: "Today 6:00 PM - 8:00 PM", capacity: 30, isPickup: false },
@@ -117,6 +138,154 @@ async function sendTwoFactorEmail(to: string, code: string): Promise<boolean> {
     }),
   });
   return res.ok;
+}
+
+async function sendTransactionalEmail(to: string, subject: string, text: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || process.env.EMAIL_FROM;
+  if (!apiKey || !from || !to) return false;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      subject,
+      text,
+    }),
+  });
+  return res.ok;
+}
+
+function buildOrderPlacedEmail(args: {
+  customerName: string;
+  orderNumber: string;
+  total: number;
+  paymentMethod: string;
+  paymentRequired: boolean;
+  checkoutUrl?: string | null;
+}) {
+  const lines = [
+    `Hi ${args.customerName},`,
+    "",
+    `Thanks for your order ${args.orderNumber}.`,
+    `Order total: $${args.total.toFixed(2)}`,
+    `Payment method: ${args.paymentMethod === "cod" ? "cash on delivery" : args.paymentMethod}`,
+  ];
+
+  if (args.paymentRequired) {
+    lines.push("", "Your order has been created and is waiting for payment confirmation.");
+    if (args.checkoutUrl) {
+      lines.push(`Complete payment here: ${args.checkoutUrl}`);
+    }
+  } else {
+    lines.push("", "Your order is confirmed and our team is preparing it.");
+  }
+
+  lines.push("", "Thank you for shopping with UrugoBuy.");
+  return lines.join("\n");
+}
+
+function buildPaymentStatusEmail(args: {
+  customerName: string;
+  orderNumber: string;
+  total: number;
+  paymentStatus: "paid" | "payment_failed";
+}) {
+  if (args.paymentStatus === "paid") {
+    return {
+      subject: `Payment received for ${args.orderNumber}`,
+      text: [
+        `Hi ${args.customerName},`,
+        "",
+        `We received your payment for order ${args.orderNumber}.`,
+        `Amount received: $${args.total.toFixed(2)}`,
+        "",
+        "Your order is now moving forward for fulfillment.",
+        "",
+        "Thank you for shopping with UrugoBuy.",
+      ].join("\n"),
+    };
+  }
+
+  return {
+    subject: `Payment not completed for ${args.orderNumber}`,
+    text: [
+      `Hi ${args.customerName},`,
+      "",
+      `Your payment for order ${args.orderNumber} was not completed.`,
+      `Order total: $${args.total.toFixed(2)}`,
+      "",
+      "You can return to your order page and start a new payment session if needed.",
+      "",
+      "UrugoBuy Support",
+    ].join("\n"),
+  };
+}
+
+function formatOrderStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
+function buildOrderStatusUpdateEmail(args: {
+  customerName: string;
+  orderNumber: string;
+  status: string;
+}) {
+  const statusLabel = formatOrderStatusLabel(args.status);
+  const messageByStatus: Record<string, string> = {
+    pending: "We are reviewing your order and getting it ready for the next step.",
+    packed: "Your order has been packed and is getting ready to leave our team.",
+    shipped: "Your order is on the way.",
+    delivered: "Your order was marked as delivered.",
+    cancelled: "Your order has been cancelled.",
+    paid: "Your order has been confirmed as paid and is now moving through fulfillment.",
+    payment_failed: "Your order is waiting because the payment did not complete.",
+  };
+
+  return {
+    subject: `Order ${args.orderNumber} is now ${statusLabel}`,
+    text: [
+      `Hi ${args.customerName},`,
+      "",
+      `Your order ${args.orderNumber} is now ${statusLabel}.`,
+      messageByStatus[args.status] || "We wanted to keep you updated on your order progress.",
+      "",
+      "Thank you for shopping with UrugoBuy.",
+    ].join("\n"),
+  };
+}
+
+function buildShipmentUpdateEmail(args: {
+  customerName: string;
+  orderNumber: string;
+  carrier: string;
+  trackingNumber: string;
+  trackingUrl?: string | null;
+}) {
+  const lines = [
+    `Hi ${args.customerName},`,
+    "",
+    `Your order ${args.orderNumber} now has shipment tracking.`,
+    `Carrier: ${args.carrier}`,
+    `Tracking number: ${args.trackingNumber}`,
+  ];
+  if (args.trackingUrl) {
+    lines.push(`Track shipment: ${args.trackingUrl}`);
+  }
+  lines.push("", "Thank you for shopping with UrugoBuy.");
+  return {
+    subject: `Tracking added for ${args.orderNumber}`,
+    text: lines.join("\n"),
+  };
+}
+
+function buildOrderStatusSms(args: { orderNumber: string; status: string }) {
+  return `UrugoBuy: Order ${args.orderNumber} is now ${formatOrderStatusLabel(args.status)}.`;
 }
 
 async function sendSmsOrWhatsApp(to: string, message: string): Promise<boolean> {
@@ -224,6 +393,16 @@ async function getSession(req: Request): Promise<SessionValue | null> {
   return sessions.get(token) || null;
 }
 
+function serializeTranslations(input?: Partial<Record<"en" | "fr" | "ar" | "rw", string>>): string | null {
+  if (!input) return null;
+  const entries = Object.entries(input)
+    .map(([key, value]) => [key, value.trim()] as const)
+    .filter(([, value]) => value.length > 0);
+
+  if (entries.length === 0) return null;
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
 async function requireAuth(req: Request) {
   const session = await getSession(req);
   if (!session) {
@@ -238,6 +417,40 @@ async function requireAdmin(req: Request) {
     throw new Error("Forbidden");
   }
   return session;
+}
+
+function getRequestedLanguage(req: Request): "en" | "fr" | "ar" | "rw" {
+  const raw = typeof req.query.lang === "string" ? req.query.lang.toLowerCase() : "en";
+  if (raw === "fr" || raw === "ar" || raw === "rw") return raw;
+  return "en";
+}
+
+function localizeStructuredText(base: string, rawTranslations: string | null | undefined, lang: string) {
+  if (!rawTranslations || lang === "en") return base;
+  try {
+    const parsed = JSON.parse(rawTranslations) as Record<string, string>;
+    return parsed?.[lang] || base;
+  } catch {
+    return base;
+  }
+}
+
+async function requireOrderAccess(req: Request, orderId: number, customerEmail: string) {
+  const session = await getSession(req);
+  if (session?.role === "admin") {
+    return;
+  }
+  if (session?.email?.toLowerCase() === customerEmail.toLowerCase()) {
+    return;
+  }
+
+  const tokenHeader = req.get("x-order-access-token");
+  const access = verifyOrderAccessToken(tokenHeader);
+  if (access && access.orderId === orderId && access.email.toLowerCase() === customerEmail.toLowerCase()) {
+    return;
+  }
+
+  throw new Error("Forbidden");
 }
 
 function createRateLimiter(limit: number, windowMs: number) {
@@ -364,7 +577,16 @@ type MarketPricingContext = {
   taxRate: number;
   freeShippingThresholdUsd: number;
   shippingFeeUsd: number;
+  shippingZone: string;
+  estimatedDaysMin: number;
+  estimatedDaysMax: number;
+  customsNotice: string | null;
+  supportedPaymentMethods: Array<"card" | "paypal" | "momo" | "cod">;
+  preferredPaymentMethod: "card" | "paypal" | "momo" | "cod";
+  supportedFulfillmentTypes: Array<"delivery" | "pickup">;
 };
+
+type ShippingServiceId = "economy" | "priority" | "express" | "pickup";
 
 async function getMarketPricingContext(country: string | undefined): Promise<MarketPricingContext> {
   const normalized = (country || "USA").trim().toUpperCase();
@@ -384,6 +606,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.08,
       freeShippingThresholdUsd: 100,
       shippingFeeUsd: 9.99,
+      shippingZone: "domestic",
+      estimatedDaysMin: 1,
+      estimatedDaysMax: 3,
+      customsNotice: null,
+      supportedPaymentMethods: ["card", "paypal", "cod"],
+      preferredPaymentMethod: "card",
+      supportedFulfillmentTypes: ["delivery", "pickup"],
     },
     FR: {
       country: "FR",
@@ -392,6 +621,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.2,
       freeShippingThresholdUsd: 90,
       shippingFeeUsd: 7.99,
+      shippingZone: "regional-eu",
+      estimatedDaysMin: 2,
+      estimatedDaysMax: 5,
+      customsNotice: null,
+      supportedPaymentMethods: ["card", "paypal"],
+      preferredPaymentMethod: "card",
+      supportedFulfillmentTypes: ["delivery", "pickup"],
     },
     AE: {
       country: "AE",
@@ -400,6 +636,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.05,
       freeShippingThresholdUsd: 80,
       shippingFeeUsd: 5.99,
+      shippingZone: "mena",
+      estimatedDaysMin: 1,
+      estimatedDaysMax: 3,
+      customsNotice: null,
+      supportedPaymentMethods: ["card", "paypal", "momo", "cod"],
+      preferredPaymentMethod: "momo",
+      supportedFulfillmentTypes: ["delivery", "pickup"],
     },
     UK: {
       country: "UK",
@@ -408,6 +651,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.2,
       freeShippingThresholdUsd: 95,
       shippingFeeUsd: 8.99,
+      shippingZone: "international-priority",
+      estimatedDaysMin: 3,
+      estimatedDaysMax: 6,
+      customsNotice: "Import handling may vary for UK deliveries depending on basket contents.",
+      supportedPaymentMethods: ["card", "paypal"],
+      preferredPaymentMethod: "card",
+      supportedFulfillmentTypes: ["delivery"],
     },
     DE: {
       country: "DE",
@@ -416,6 +666,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.19,
       freeShippingThresholdUsd: 90,
       shippingFeeUsd: 7.99,
+      shippingZone: "regional-eu",
+      estimatedDaysMin: 2,
+      estimatedDaysMax: 5,
+      customsNotice: null,
+      supportedPaymentMethods: ["card", "paypal"],
+      preferredPaymentMethod: "card",
+      supportedFulfillmentTypes: ["delivery"],
     },
     RW: {
       country: "RW",
@@ -424,6 +681,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.18,
       freeShippingThresholdUsd: 60,
       shippingFeeUsd: 4.99,
+      shippingZone: "local-rwanda",
+      estimatedDaysMin: 0,
+      estimatedDaysMax: 2,
+      customsNotice: null,
+      supportedPaymentMethods: ["momo", "cod", "card"],
+      preferredPaymentMethod: "momo",
+      supportedFulfillmentTypes: ["delivery", "pickup"],
     },
     CA: {
       country: "CA",
@@ -432,6 +696,13 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
       taxRate: 0.13,
       freeShippingThresholdUsd: 95,
       shippingFeeUsd: 8.99,
+      shippingZone: "international-priority",
+      estimatedDaysMin: 3,
+      estimatedDaysMax: 7,
+      customsNotice: "Cross-border delivery timing can change during customs clearance.",
+      supportedPaymentMethods: ["card", "paypal"],
+      preferredPaymentMethod: "card",
+      supportedFulfillmentTypes: ["delivery"],
     },
   };
 
@@ -454,6 +725,90 @@ async function getMarketPricingContext(country: string | undefined): Promise<Mar
 
 function convertAmount(amountUsd: number, exchangeRate: number) {
   return roundCurrency(amountUsd * exchangeRate);
+}
+
+function getShippingServicesForMarket(market: MarketPricingContext) {
+  const deliveryBase = market.shippingFeeUsd;
+  const services: Array<{
+    id: ShippingServiceId;
+    fulfillmentType: "delivery" | "pickup";
+    feeUsd: number;
+    estimatedDaysMin: number;
+    estimatedDaysMax: number;
+  }> = [
+    {
+      id: "economy",
+      fulfillmentType: "delivery",
+      feeUsd: Math.max(0, deliveryBase - 2),
+      estimatedDaysMin: market.country === "RW" ? 1 : market.estimatedDaysMin + 1,
+      estimatedDaysMax: market.estimatedDaysMax + 2,
+    },
+    {
+      id: "priority",
+      fulfillmentType: "delivery",
+      feeUsd: deliveryBase,
+      estimatedDaysMin: market.estimatedDaysMin,
+      estimatedDaysMax: market.estimatedDaysMax,
+    },
+    {
+      id: "express",
+      fulfillmentType: "delivery",
+      feeUsd: roundCurrency(deliveryBase + (market.country === "RW" ? 2.5 : 6)),
+      estimatedDaysMin: Math.max(0, market.estimatedDaysMin - 1),
+      estimatedDaysMax: Math.max(1, market.estimatedDaysMax - 1),
+    },
+  ];
+
+  if (market.supportedFulfillmentTypes.includes("pickup")) {
+    services.push({
+      id: "pickup",
+      fulfillmentType: "pickup",
+      feeUsd: 0,
+      estimatedDaysMin: 0,
+      estimatedDaysMax: 0,
+    });
+  }
+
+  return services.filter((service) => market.supportedFulfillmentTypes.includes(service.fulfillmentType));
+}
+
+function computeShippingPlan(args: {
+  market: MarketPricingContext;
+  subtotalUsd: number;
+  fulfillmentType?: "delivery" | "pickup";
+  shippingService?: ShippingServiceId;
+}) {
+  const services = getShippingServicesForMarket(args.market);
+  const selected = services.find((service) => service.id === args.shippingService)
+    || services.find((service) => service.fulfillmentType === args.fulfillmentType)
+    || services[0];
+
+  if (!selected) {
+    throw new Error(`No shipping service available for ${args.market.country}`);
+  }
+
+  if (selected.fulfillmentType === "pickup") {
+    return {
+      shippingService: selected.id,
+      shippingFeeUsd: 0,
+      estimatedDaysMin: 0,
+      estimatedDaysMax: 0,
+      promise: "Ready for pickup in about 2 hours.",
+      services,
+    };
+  }
+
+  const qualifiesForFreeShipping = args.subtotalUsd >= args.market.freeShippingThresholdUsd;
+  return {
+    shippingService: selected.id,
+    shippingFeeUsd: qualifiesForFreeShipping && selected.id !== "express" ? 0 : selected.feeUsd,
+    estimatedDaysMin: selected.estimatedDaysMin,
+    estimatedDaysMax: selected.estimatedDaysMax,
+    promise: qualifiesForFreeShipping
+      ? `Free shipping available for this market above ${args.market.freeShippingThresholdUsd.toFixed(2)} USD.`
+      : `Estimated delivery in ${selected.estimatedDaysMin}-${selected.estimatedDaysMax} days for ${args.market.country}.`,
+    services,
+  };
 }
 
 async function mergeOrderMetaRows<T extends { id: number }>(rows: T[]) {
@@ -551,6 +906,88 @@ function verifyStripeSignature(rawBody: Buffer, signatureHeader: string, secret:
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
 }
 
+async function updateOrderPaymentState(orderId: number, paymentStatus: "paid" | "payment_failed") {
+  const nextOrderStatus = paymentStatus === "paid" ? "paid" : "payment_failed";
+  await db.update(orders).set({ status: nextOrderStatus }).where(eq(orders.id, orderId));
+  await db
+    .update(orderMeta)
+    .set({ paymentStatus })
+    .where(eq(orderMeta.orderId, orderId));
+  return nextOrderStatus;
+}
+
+async function restockOrderInventory(orderId: number) {
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  for (const item of items) {
+    await db
+      .update(products)
+      .set({ stockQuantity: sql`${products.stockQuantity} + ${item.quantity}` })
+      .where(eq(products.id, item.productId));
+  }
+}
+
+async function finalizeOrderPayment(args: {
+  orderId: number;
+  paymentStatus: "paid" | "payment_failed";
+  orderNumber?: string;
+  notificationMessage: string;
+  smsMessage?: string;
+}) {
+  const [existingMeta] = await db
+    .select()
+    .from(orderMeta)
+    .where(eq(orderMeta.orderId, args.orderId))
+    .limit(1);
+  if (!existingMeta) {
+    throw new Error("Order payment record not found");
+  }
+
+  if (existingMeta.paymentStatus === "paid") {
+    return { paymentStatus: "paid" as const, orderStatus: "paid" as const, changed: false };
+  }
+  if (existingMeta.paymentStatus === "payment_failed") {
+    return { paymentStatus: "payment_failed" as const, orderStatus: "payment_failed" as const, changed: false };
+  }
+
+  const orderStatus = await updateOrderPaymentState(args.orderId, args.paymentStatus);
+  if (args.paymentStatus === "payment_failed") {
+    await restockOrderInventory(args.orderId);
+  }
+
+  await db.insert(notificationLogs).values({
+    orderId: args.orderId,
+    channel: "payment",
+    message: args.notificationMessage,
+  });
+
+  const orderRecord = await storage.getOrder(args.orderId);
+  if (orderRecord) {
+    const email = buildPaymentStatusEmail({
+      customerName: orderRecord.order.customerName,
+      orderNumber: orderRecord.order.orderNumber,
+      total: Number(orderRecord.order.total),
+      paymentStatus: args.paymentStatus,
+    });
+    const emailSent = await sendTransactionalEmail(
+      orderRecord.order.customerEmail,
+      email.subject,
+      email.text,
+    ).catch(() => false);
+
+    await db.insert(notificationLogs).values({
+      orderId: args.orderId,
+      channel: "email",
+      message: emailSent ? email.subject : `${email.subject} (delivery not configured)`,
+    });
+  }
+
+  if (args.smsMessage) {
+    await sendSmsOrWhatsApp(process.env.TWILIO_TO || "", args.smsMessage).catch(() => undefined);
+  }
+
+  return { paymentStatus: args.paymentStatus, orderStatus, changed: true };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
@@ -635,6 +1072,57 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/firebase-sync", async (req, res) => {
+    try {
+      const session = await getSession(req);
+      if (!session) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const input = z.object({
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+      }).parse(req.body ?? {});
+
+      const normalizedEmail = (input.email || session.email).toLowerCase();
+      const normalizedName = input.name || session.name || normalizedEmail.split("@")[0] || "Customer";
+
+      const [existing] = await db
+        .select()
+        .from(users)
+        .where(sql`LOWER(${users.email}) = ${normalizedEmail}`)
+        .limit(1);
+
+      if (!existing) {
+        const [created] = await db.insert(users).values({
+          name: normalizedName,
+          email: normalizedEmail,
+          passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")),
+          role: session.role,
+        }).returning();
+
+        return res.status(201).json({
+          user: { name: created.name, email: created.email, role: created.role },
+        });
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set({ name: normalizedName })
+        .where(eq(users.id, existing.id))
+        .returning();
+
+      return res.json({
+        user: { name: updated.name, email: updated.email, role: updated.role },
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/auth/me", async (req, res) => {
     const session = await getSession(req);
     if (!session) return res.status(401).json({ message: "Unauthorized" });
@@ -647,9 +1135,9 @@ export async function registerRoutes(
     return res.json({ ok: true });
   });
 
-  app.get(api.categories.list.path, async (_req, res) => {
+  app.get(api.categories.list.path, async (req, res) => {
     try {
-      const categoriesList = await storage.getCategories();
+      const categoriesList = await storage.getCategories(getRequestedLanguage(req));
       res.json(categoriesList);
     } catch {
       res.status(500).json({ message: "Internal server error" });
@@ -659,7 +1147,7 @@ export async function registerRoutes(
   app.get(api.products.list.path, async (req, res) => {
     try {
       const input = api.products.list.input?.parse(req.query) || {};
-      const productsList = await storage.getProducts(input);
+      const productsList = await storage.getProducts({ ...input, lang: getRequestedLanguage(req) });
       res.json(productsList);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -678,7 +1166,7 @@ export async function registerRoutes(
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid product ID" });
       }
-      const product = await storage.getProduct(id);
+      const product = await storage.getProduct(id, getRequestedLanguage(req));
       if (!product) {
         return res.status(404).json({ message: "Product not found" });
       }
@@ -689,28 +1177,46 @@ export async function registerRoutes(
   });
 
   app.get("/api/content/pages/:slug", async (req, res) => {
+    const lang = getRequestedLanguage(req);
     const [page] = await db
       .select()
       .from(contentPages)
       .where(and(eq(contentPages.slug, req.params.slug), eq(contentPages.published, true)))
       .limit(1);
     if (!page) return res.status(404).json({ message: "Page not found" });
-    return res.json(page);
+    return res.json({
+      ...page,
+      title: localizeStructuredText(page.title, page.titleTranslations, lang),
+      description: localizeStructuredText(page.description, page.descriptionTranslations, lang),
+      body: localizeStructuredText(page.body, page.bodyTranslations, lang),
+    });
   });
 
-  app.get("/api/blog/posts", async (_req, res) => {
+  app.get("/api/blog/posts", async (req, res) => {
+    const lang = getRequestedLanguage(req);
     const rows = await db.select().from(blogPosts).where(eq(blogPosts.published, true)).orderBy(desc(blogPosts.publishedAt));
-    return res.json(rows);
+    return res.json(rows.map((row) => ({
+      ...row,
+      title: localizeStructuredText(row.title, row.titleTranslations, lang),
+      excerpt: localizeStructuredText(row.excerpt, row.excerptTranslations, lang),
+      body: localizeStructuredText(row.body, row.bodyTranslations, lang),
+    })));
   });
 
   app.get("/api/blog/posts/:slug", async (req, res) => {
+    const lang = getRequestedLanguage(req);
     const [row] = await db
       .select()
       .from(blogPosts)
       .where(and(eq(blogPosts.slug, req.params.slug), eq(blogPosts.published, true)))
       .limit(1);
     if (!row) return res.status(404).json({ message: "Post not found" });
-    return res.json(row);
+    return res.json({
+      ...row,
+      title: localizeStructuredText(row.title, row.titleTranslations, lang),
+      excerpt: localizeStructuredText(row.excerpt, row.excerptTranslations, lang),
+      body: localizeStructuredText(row.body, row.bodyTranslations, lang),
+    });
   });
 
   app.get("/api/currency/rates", async (_req, res) => {
@@ -727,20 +1233,27 @@ export async function registerRoutes(
 
   app.get("/api/search/suggest", async (req, res) => {
     try {
+      const lang = getRequestedLanguage(req);
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       if (!q) return res.json([]);
       const rows = await db
         .select({
           id: products.id,
           name: products.name,
+          nameTranslations: products.nameTranslations,
           price: products.price,
           categoryId: products.categoryId,
         })
         .from(products)
-        .where(ilike(products.name, `%${q}%`))
+        .where(
+          sql`(${products.name} ILIKE ${`%${q}%`} OR COALESCE(${products.nameTranslations}, '') ILIKE ${`%${q}%`})`,
+        )
         .orderBy(desc(products.rating), asc(products.name))
         .limit(8);
-      return res.json(await mergeOrderMetaRows(rows));
+      return res.json((await mergeOrderMetaRows(rows)).map((row) => ({
+        ...row,
+        name: localizeStructuredText(row.name, row.nameTranslations, lang),
+      })));
     } catch {
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -748,6 +1261,7 @@ export async function registerRoutes(
 
   app.get("/api/search/advanced", async (req, res) => {
     try {
+      const lang = getRequestedLanguage(req);
       const q = typeof req.query.q === "string" ? req.query.q : "";
       const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
       const featured = req.query.featured === "true" ? true : undefined;
@@ -765,6 +1279,7 @@ export async function registerRoutes(
         minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
         maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
         sort,
+        lang,
       });
 
       const normalizedQuery = normalizeSearchText(q);
@@ -781,6 +1296,7 @@ export async function registerRoutes(
 
   app.get("/api/recommendations/:productId", async (req, res) => {
     try {
+      const lang = getRequestedLanguage(req);
       const productId = Number(req.params.productId);
       if (!Number.isFinite(productId) || productId <= 0) {
         return res.status(400).json({ message: "Invalid product ID" });
@@ -797,7 +1313,13 @@ export async function registerRoutes(
           .orderBy(desc(products.rating), desc(products.isFeatured), asc(products.price))
           .limit(6);
 
-      if (related.length > 0) return res.json(related);
+      if (related.length > 0) {
+        return res.json(related.map((item) => ({
+          ...item,
+          name: localizeStructuredText(item.name, item.nameTranslations, lang),
+          description: localizeStructuredText(item.description, item.descriptionTranslations, lang),
+        })));
+      }
 
       const fallback = await db
         .select()
@@ -805,7 +1327,11 @@ export async function registerRoutes(
         .where(sql`${products.id} <> ${productId}`)
         .orderBy(desc(products.rating), desc(products.isFeatured), asc(products.price))
         .limit(6);
-      return res.json(fallback);
+      return res.json(fallback.map((item) => ({
+        ...item,
+        name: localizeStructuredText(item.name, item.nameTranslations, lang),
+        description: localizeStructuredText(item.description, item.descriptionTranslations, lang),
+      })));
     } catch {
       return res.status(500).json({ message: "Internal server error" });
     }
@@ -929,6 +1455,66 @@ export async function registerRoutes(
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/reviews", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db
+        .select({
+          id: productReviews.id,
+          productId: productReviews.productId,
+          productName: products.name,
+          userEmail: productReviews.userEmail,
+          rating: productReviews.rating,
+          comment: productReviews.comment,
+          photoUrl: productReviews.photoUrl,
+          videoUrl: productReviews.videoUrl,
+          createdAt: productReviews.createdAt,
+        })
+        .from(productReviews)
+        .innerJoin(products, eq(products.id, productReviews.productId))
+        .orderBy(desc(productReviews.createdAt), desc(productReviews.id));
+
+      const purchaseRows = await db
+        .select({
+          productId: orderItems.productId,
+          email: orders.customerEmail,
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orderItems.orderId, orders.id))
+        .where(sql`${orders.status} <> 'cancelled'`);
+
+      const verifiedSet = new Set(
+        purchaseRows.map((row) => `${Number(row.productId)}:${row.email.toLowerCase()}`),
+      );
+
+      return res.json(rows.map((row) => ({
+        ...row,
+        verifiedPurchase: verifiedSet.has(`${row.productId}:${row.userEmail.toLowerCase()}`),
+      })));
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/reviews/:id", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid review ID" });
+      }
+      const [deleted] = await db.delete(productReviews).where(eq(productReviews.id, id)).returning();
+      if (!deleted) return res.status(404).json({ message: "Review not found" });
+      return res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
       return res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -1173,7 +1759,13 @@ export async function registerRoutes(
       const input = api.checkout.quote.input.parse(req.body);
       const quote = await storage.getCheckoutQuote({ items: input.items });
       const market = await getMarketPricingContext(input.country);
-      const shippingFee = quote.subtotal >= market.freeShippingThresholdUsd ? 0 : market.shippingFeeUsd;
+      const shippingPlan = computeShippingPlan({
+        market,
+        subtotalUsd: quote.subtotal,
+        fulfillmentType: input.fulfillmentType,
+        shippingService: input.shippingService,
+      });
+      const shippingFee = shippingPlan.shippingFeeUsd;
       const regionalTax = roundCurrency(quote.subtotal * market.taxRate);
       const totalBeforeDiscounts = roundCurrency(quote.subtotal + shippingFee + regionalTax);
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
@@ -1195,6 +1787,22 @@ export async function registerRoutes(
           currencyCode: market.currencyCode,
           currencySymbol: market.currencySymbol,
           exchangeRate: market.exchangeRate,
+          shippingZone: market.shippingZone,
+          estimatedDaysMin: shippingPlan.estimatedDaysMin,
+          estimatedDaysMax: shippingPlan.estimatedDaysMax,
+          freeShippingThreshold: market.freeShippingThresholdUsd,
+          customsNotice: market.customsNotice,
+          supportedPaymentMethods: market.supportedPaymentMethods,
+          preferredPaymentMethod: market.preferredPaymentMethod,
+          supportedFulfillmentTypes: market.supportedFulfillmentTypes,
+          shippingServices: shippingPlan.services.map((service) => ({
+            id: service.id,
+            fulfillmentType: service.fulfillmentType,
+            fee: convertAmount(service.feeUsd, market.exchangeRate),
+            estimatedDaysMin: service.estimatedDaysMin,
+            estimatedDaysMax: service.estimatedDaysMax,
+          })),
+          selectedShippingService: shippingPlan.shippingService,
         },
         converted: {
           subtotal: convertAmount(quote.subtotal, market.exchangeRate),
@@ -1222,6 +1830,15 @@ export async function registerRoutes(
   app.post(api.orders.create.path, async (req, res) => {
     try {
       const input = api.orders.create.input.parse(req.body);
+      const market = await getMarketPricingContext(input.country);
+      const paymentMethod = input.paymentMethod || "cod";
+      const fulfillmentType = input.fulfillmentType || "delivery";
+      if (!market.supportedPaymentMethods.includes(paymentMethod)) {
+        return res.status(400).json({ message: `${paymentMethod} is not available for ${market.country} checkout.` });
+      }
+      if (!market.supportedFulfillmentTypes.includes(fulfillmentType)) {
+        return res.status(400).json({ message: `${fulfillmentType} is not available for ${market.country} checkout.` });
+      }
       if (input.deliverySlot) {
         const slots = await getDeliverySlotsWithCapacity();
         const selected = slots.find((slot) => slot.label === input.deliverySlot);
@@ -1234,8 +1851,13 @@ export async function registerRoutes(
       }
       const order = await storage.createOrder(input);
       const quote = await storage.getCheckoutQuote({ items: input.items });
-      const market = await getMarketPricingContext(input.country);
-      const shippingFee = quote.subtotal >= market.freeShippingThresholdUsd ? 0 : market.shippingFeeUsd;
+      const shippingPlan = computeShippingPlan({
+        market,
+        subtotalUsd: quote.subtotal,
+        fulfillmentType: input.fulfillmentType,
+        shippingService: input.shippingService,
+      });
+      const shippingFee = shippingPlan.shippingFeeUsd;
       const regionalTax = roundCurrency(quote.subtotal * market.taxRate);
       const totalBeforeDiscounts = roundCurrency(quote.subtotal + shippingFee + regionalTax);
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
@@ -1265,6 +1887,7 @@ export async function registerRoutes(
         giftCardCode: giftCard?.code,
         giftCardDiscount: giftCardDiscount.toFixed(2),
         deliverySlot: input.deliverySlot,
+        shippingService: shippingPlan.shippingService,
         paymentMethod: input.paymentMethod || "cod",
         paymentStatus: "pending",
         marketCountry: market.country,
@@ -1279,12 +1902,104 @@ export async function registerRoutes(
         message: `Order ${order.orderNumber} confirmation prepared for ${input.customerEmail}`,
       });
 
+      if (isOnlinePaymentMethod(input.paymentMethod)) {
+        const payment = await createPaymentSession({
+          req,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          amount: finalTotal,
+          method: input.paymentMethod,
+        });
+        const orderEmailText = buildOrderPlacedEmail({
+          customerName: input.customerName,
+          orderNumber: order.orderNumber,
+          total: finalTotal,
+          paymentMethod: input.paymentMethod,
+          paymentRequired: true,
+          checkoutUrl: payment.checkoutUrl,
+        });
+        const orderEmailSent = await sendTransactionalEmail(
+          input.customerEmail,
+          `Complete payment for ${order.orderNumber}`,
+          orderEmailText,
+        ).catch(() => false);
+        await db.insert(notificationLogs).values({
+          orderId: order.id,
+          channel: "email",
+          message: orderEmailSent
+            ? `Payment instructions emailed to ${input.customerEmail}`
+            : `Payment instructions prepared for ${input.customerEmail}`,
+        });
+        if (input.customerPhone) {
+          await sendSmsOrWhatsApp(
+            input.customerPhone,
+            `UrugoBuy: Complete payment for ${order.orderNumber} to confirm your order.`,
+          ).catch(() => undefined);
+          await db.insert(notificationLogs).values({
+            orderId: order.id,
+            channel: "sms",
+            message: `Payment instructions SMS prepared for ${input.customerPhone}`,
+          });
+        }
+        return res.status(201).json({
+          ...order,
+          total: finalTotal,
+          accessToken: signOrderAccessToken(order.id, input.customerEmail),
+          payment: {
+            required: true,
+            method: input.paymentMethod,
+            provider: payment.view.provider,
+            checkoutUrl: payment.checkoutUrl,
+            sessionToken: payment.session.token,
+            expiresAt: payment.view.expiresAt,
+          },
+        });
+      }
+
       await sendSmsOrWhatsApp(
-        process.env.TWILIO_TO || "",
+        input.customerPhone || "",
         `UrugoBuy: Order ${order.orderNumber} confirmed. Total $${finalTotal.toFixed(2)}.`,
       ).catch(() => undefined);
+      if (input.customerPhone) {
+        await db.insert(notificationLogs).values({
+          orderId: order.id,
+          channel: "sms",
+          message: `Order confirmation SMS prepared for ${input.customerPhone}`,
+        });
+      }
+      const orderEmailText = buildOrderPlacedEmail({
+        customerName: input.customerName,
+        orderNumber: order.orderNumber,
+        total: finalTotal,
+        paymentMethod: input.paymentMethod || "cod",
+        paymentRequired: false,
+      });
+      const orderEmailSent = await sendTransactionalEmail(
+        input.customerEmail,
+        `Order confirmed: ${order.orderNumber}`,
+        orderEmailText,
+      ).catch(() => false);
+      await db.insert(notificationLogs).values({
+        orderId: order.id,
+        channel: "email",
+        message: orderEmailSent
+          ? `Order confirmation emailed to ${input.customerEmail}`
+          : `Order confirmation prepared for ${input.customerEmail}`,
+      });
 
-      res.status(201).json({ ...order, total: finalTotal });
+      res.status(201).json({
+        ...order,
+        total: finalTotal,
+        accessToken: signOrderAccessToken(order.id, input.customerEmail),
+        payment: {
+          required: false,
+          method: input.paymentMethod || "cod",
+          provider: null,
+          checkoutUrl: null,
+          sessionToken: null,
+          expiresAt: null,
+        },
+      });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
@@ -1309,6 +2024,7 @@ export async function registerRoutes(
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
+      await requireOrderAccess(req, id, order.order.customerEmail);
       const [meta] = await db.select().from(orderMeta).where(eq(orderMeta.orderId, id)).limit(1);
       res.json({
         ...order,
@@ -1322,6 +2038,35 @@ export async function registerRoutes(
     }
   });
 
+  app.post(api.orders.lookup.path, async (req, res) => {
+    try {
+      const input = api.orders.lookup.input.parse(req.body);
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(and(
+          eq(orders.orderNumber, input.orderNumber.trim()),
+          eq(orders.customerEmail, input.email.trim().toLowerCase()),
+        ))
+        .limit(1);
+
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      return res.json({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        accessToken: signOrderAccessToken(order.id, order.customerEmail),
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/orders/:id/tracking", async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -1329,7 +2074,9 @@ export async function registerRoutes(
 
       const orderData = await storage.getOrder(id);
       if (!orderData) return res.status(404).json({ message: "Order not found" });
+      await requireOrderAccess(req, id, orderData.order.customerEmail);
       const order = orderData.order;
+      const [meta] = await db.select().from(orderMeta).where(eq(orderMeta.orderId, id)).limit(1);
 
       const statusOrder = ["pending", "packed", "shipped", "delivered"];
       const currentIndex = Math.max(0, statusOrder.indexOf(order.status));
@@ -1337,12 +2084,295 @@ export async function registerRoutes(
       const timeline = statusOrder.map((s, idx) => ({
         status: s,
         completed: idx <= currentIndex,
-        timestamp: new Date(createdMs + idx * 6 * 60 * 60 * 1000).toISOString(),
+        timestamp:
+          s === "shipped" && meta?.shippedAt ? new Date(meta.shippedAt).toISOString()
+          : s === "delivered" && meta?.deliveredAt ? new Date(meta.deliveredAt).toISOString()
+          : new Date(createdMs + idx * 6 * 60 * 60 * 1000).toISOString(),
       }));
-      const eta = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+      const eta = meta?.deliveredAt
+        ? new Date(meta.deliveredAt).toISOString()
+        : meta?.shippedAt
+          ? new Date(new Date(meta.shippedAt).getTime() + 2 * 24 * 60 * 60 * 1000).toISOString()
+          : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
       const progress = statusOrder.length > 1 ? Math.round((Math.max(0, currentIndex) / (statusOrder.length - 1)) * 100) : 0;
-      return res.json({ orderId: id, currentStatus: order.status, timeline, eta, progress });
+      return res.json({
+        orderId: id,
+        currentStatus: order.status,
+        timeline,
+        eta,
+        progress,
+        shipment: meta ? {
+          carrier: meta.shipmentCarrier,
+          trackingNumber: meta.trackingNumber,
+          trackingUrl: meta.trackingUrl,
+          shippingNote: meta.shippingNote,
+          shippingService: meta.shippingService,
+          shippedAt: meta.shippedAt,
+          deliveredAt: meta.deliveredAt,
+        } : null,
+      });
     } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get(api.payments.session.path, async (req, res) => {
+    try {
+      const orderId = Number(req.params.orderId);
+      if (Number.isNaN(orderId)) {
+        return res.status(400).json({ message: "Invalid order ID" });
+      }
+
+      const sessionToken = typeof req.query.paymentSession === "string" ? req.query.paymentSession : "";
+      const session = await getPaymentSessionView(sessionToken);
+      if (!session || session.orderId !== orderId) {
+        return res.status(404).json({ message: "Payment session not found" });
+      }
+      return res.json(session);
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get(api.payments.resume.path, async (req, res) => {
+    try {
+      const orderId = Number(req.params.orderId);
+      if (Number.isNaN(orderId)) {
+        return res.status(400).json({ message: "Invalid order ID" });
+      }
+
+      const session = await getLatestActivePaymentSessionForOrder(orderId);
+      if (!session) {
+        return res.status(404).json({ message: "No active payment session found" });
+      }
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      await requireOrderAccess(req, orderId, order.order.customerEmail);
+
+      const appUrl = (process.env.APP_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "");
+      const checkoutPath = `/checkout/payment/${orderId}?payment_session=${encodeURIComponent(session.token)}`;
+
+      return res.json({
+        checkoutUrl: appUrl ? `${appUrl}${checkoutPath}` : checkoutPath,
+        sessionToken: session.token,
+        expiresAt: new Date(session.expiresAt).toISOString(),
+        provider: session.provider,
+        method: session.method,
+      });
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post(api.payments.restart.path, async (req, res) => {
+    try {
+      const orderId = Number(req.params.orderId);
+      if (Number.isNaN(orderId)) {
+        return res.status(400).json({ message: "Invalid order ID" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      await requireOrderAccess(req, orderId, order.order.customerEmail);
+
+      const [meta] = await db.select().from(orderMeta).where(eq(orderMeta.orderId, orderId)).limit(1);
+      const rawPaymentMethod = meta?.paymentMethod ?? undefined;
+      if (!meta || !isOnlinePaymentMethod(rawPaymentMethod)) {
+        return res.status(400).json({ message: "This order does not use an online payment method" });
+      }
+      const paymentMethod: OnlinePaymentMethod = rawPaymentMethod;
+
+      if (meta.paymentStatus === "paid") {
+        return res.status(400).json({ message: "This order has already been paid" });
+      }
+
+      const activeSession = await getLatestActivePaymentSessionForOrder(orderId);
+      if (activeSession) {
+        const appUrl = (process.env.APP_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "");
+        const checkoutPath = `/checkout/payment/${orderId}?payment_session=${encodeURIComponent(activeSession.token)}`;
+        return res.json({
+          checkoutUrl: appUrl ? `${appUrl}${checkoutPath}` : checkoutPath,
+          sessionToken: activeSession.token,
+          expiresAt: new Date(activeSession.expiresAt).toISOString(),
+          provider: activeSession.provider,
+          method: activeSession.method,
+        });
+      }
+
+      const payment = await createPaymentSession({
+        req,
+        orderId,
+        orderNumber: order.order.orderNumber,
+        amount: Number(order.order.total),
+        method: paymentMethod,
+        currencyCode: meta.currencyCode || undefined,
+      });
+
+      return res.json({
+        checkoutUrl: payment.checkoutUrl,
+        sessionToken: payment.session.token,
+        expiresAt: payment.view.expiresAt,
+        provider: payment.view.provider,
+        method: payment.view.method,
+      });
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post(api.payments.confirm.path, async (req, res) => {
+    try {
+      const orderId = Number(req.params.orderId);
+      if (Number.isNaN(orderId)) {
+        return res.status(400).json({ message: "Invalid order ID" });
+      }
+
+      const input = api.payments.confirm.input.parse(req.body);
+      const session = await getPaymentSession(input.sessionToken);
+      if (!session || session.orderId !== orderId) {
+        return res.status(404).json({ message: "Payment session not found" });
+      }
+
+      if (input.action === "fail") {
+        await failPaymentSession(session);
+        const result = await finalizeOrderPayment({
+          orderId,
+          paymentStatus: "payment_failed",
+          orderNumber: session.orderNumber,
+          notificationMessage: `Payment failed or was cancelled for order ${session.orderNumber}.`,
+        });
+        return res.json({ ok: true, paymentStatus: result.paymentStatus, orderStatus: result.orderStatus });
+      }
+
+      await capturePaymentSession(session, input.payerId, input.providerToken);
+      const result = await finalizeOrderPayment({
+        orderId,
+        paymentStatus: "paid",
+        orderNumber: session.orderNumber,
+        notificationMessage: `Payment captured for order ${session.orderNumber}.`,
+        smsMessage: `UrugoBuy: Payment received for ${session.orderNumber}.`,
+      });
+      return res.json({ ok: true, paymentStatus: result.paymentStatus, orderStatus: result.orderStatus });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/webhooks/paypal", async (req, res) => {
+    try {
+      const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}), "utf8");
+      const verified = await verifyPayPalWebhook({ rawBody, headers: req.headers });
+      if (!verified) {
+        return res.status(400).json({ message: "Invalid PayPal webhook signature" });
+      }
+
+      const event = req.body as {
+        event_type?: string;
+        resource?: {
+          id?: string;
+          status?: string;
+          supplementary_data?: {
+            related_ids?: {
+              order_id?: string;
+            };
+          };
+        };
+      };
+
+      const providerOrderId =
+        event.resource?.supplementary_data?.related_ids?.order_id ||
+        event.resource?.id ||
+        null;
+      const session = await getPaymentSessionByProviderOrderId("paypal", providerOrderId);
+      if (!session) {
+        return res.status(202).json({ ok: true, ignored: true });
+      }
+
+      const eventType = event.event_type || "";
+      if (eventType === "PAYMENT.CAPTURE.COMPLETED" || eventType === "CHECKOUT.ORDER.APPROVED") {
+        const result = await finalizeOrderPayment({
+          orderId: session.orderId,
+          paymentStatus: "paid",
+          orderNumber: session.orderNumber,
+          notificationMessage: `PayPal webhook confirmed payment for order ${session.orderNumber}.`,
+          smsMessage: `UrugoBuy: Payment received for ${session.orderNumber}.`,
+        });
+        return res.json({ ok: true, paymentStatus: result.paymentStatus, orderStatus: result.orderStatus });
+      }
+
+      if (eventType === "PAYMENT.CAPTURE.DENIED" || eventType === "PAYMENT.CAPTURE.DECLINED" || eventType === "CHECKOUT.ORDER.VOIDED") {
+        await failPaymentSession(session);
+        const result = await finalizeOrderPayment({
+          orderId: session.orderId,
+          paymentStatus: "payment_failed",
+          orderNumber: session.orderNumber,
+          notificationMessage: `PayPal webhook marked payment as failed for order ${session.orderNumber}.`,
+        });
+        return res.json({ ok: true, paymentStatus: result.paymentStatus, orderStatus: result.orderStatus });
+      }
+
+      return res.status(202).json({ ok: true, ignored: true, eventType });
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/webhooks/demo", async (req, res) => {
+    try {
+      const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}), "utf8");
+      const signature = typeof req.headers["x-demo-signature"] === "string" ? req.headers["x-demo-signature"] : undefined;
+      if (!verifyDemoWebhook(rawBody, signature)) {
+        return res.status(400).json({ message: "Invalid demo webhook signature" });
+      }
+
+      const input = z.object({
+        providerOrderId: z.string().min(1),
+        status: z.enum(["paid", "payment_failed"]),
+      }).parse(req.body);
+
+      const session = await getPaymentSessionByProviderOrderId("demo", input.providerOrderId);
+      if (!session) {
+        return res.status(202).json({ ok: true, ignored: true });
+      }
+
+      if (input.status === "payment_failed") {
+        await failPaymentSession(session);
+      }
+
+      const result = await finalizeOrderPayment({
+        orderId: session.orderId,
+        paymentStatus: input.status,
+        orderNumber: session.orderNumber,
+        notificationMessage:
+          input.status === "paid"
+            ? `Demo webhook confirmed payment for order ${session.orderNumber}.`
+            : `Demo webhook marked payment as failed for order ${session.orderNumber}.`,
+        smsMessage: input.status === "paid" ? `UrugoBuy: Payment received for ${session.orderNumber}.` : undefined,
+      });
+      return res.json({ ok: true, paymentStatus: result.paymentStatus, orderStatus: result.orderStatus });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
       return res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -1350,17 +2380,24 @@ export async function registerRoutes(
   app.get("/api/orders/:id/returns", async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: "Invalid order ID" });
-    const rows = await db.select().from(returnRequests).where(eq(returnRequests.orderId, id)).orderBy(desc(returnRequests.id));
-    if (rows.length === 0) return res.json([]);
-    const events = await db
-      .select()
-      .from(returnStatusEvents)
-      .where(inArray(returnStatusEvents.returnRequestId, rows.map((row) => row.id)))
-      .orderBy(asc(returnStatusEvents.id));
-    return res.json(rows.map((row) => ({
-      ...row,
-      timeline: events.filter((event) => event.returnRequestId === row.id),
-    })));
+    try {
+      const order = await storage.getOrder(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      await requireOrderAccess(req, id, order.order.customerEmail);
+      const rows = await db.select().from(returnRequests).where(eq(returnRequests.orderId, id)).orderBy(desc(returnRequests.id));
+      if (rows.length === 0) return res.json([]);
+      const events = await db
+        .select()
+        .from(returnStatusEvents)
+        .where(inArray(returnStatusEvents.returnRequestId, rows.map((row) => row.id)))
+        .orderBy(asc(returnStatusEvents.id));
+      return res.json(rows.map((row) => ({
+        ...row,
+        timeline: events.filter((event) => event.returnRequestId === row.id),
+      })));
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.get("/api/notifications/:orderId", async (req, res) => {
@@ -1370,9 +2407,35 @@ export async function registerRoutes(
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
+      await requireOrderAccess(req, id, order.order.customerEmail);
+      const [meta] = await db.select().from(orderMeta).where(eq(orderMeta.orderId, id)).limit(1);
       const logs = await db.select().from(notificationLogs).where(eq(notificationLogs.orderId, id));
-      const emailMessage = `Hi ${order.order.customerName}, your order ${order.order.orderNumber} is confirmed.`;
-      const smsMessage = `Order ${order.order.orderNumber} confirmed. Total $${Number(order.order.total).toFixed(2)}.`;
+      const paymentStatus = meta?.paymentStatus === "paid" || meta?.paymentStatus === "payment_failed"
+        ? meta.paymentStatus
+        : null;
+      const emailMessage = paymentStatus
+        ? buildPaymentStatusEmail({
+            customerName: order.order.customerName,
+            orderNumber: order.order.orderNumber,
+            total: Number(order.order.total),
+            paymentStatus,
+          }).text
+        : order.order.status !== "pending"
+          ? buildOrderStatusUpdateEmail({
+              customerName: order.order.customerName,
+              orderNumber: order.order.orderNumber,
+              status: order.order.status,
+            }).text
+          : buildOrderPlacedEmail({
+              customerName: order.order.customerName,
+              orderNumber: order.order.orderNumber,
+              total: Number(order.order.total),
+              paymentMethod: meta?.paymentMethod || "cod",
+              paymentRequired: Boolean(meta?.paymentMethod && meta.paymentMethod !== "cod"),
+            });
+      const smsMessage = order.order.status !== "pending"
+        ? buildOrderStatusSms({ orderNumber: order.order.orderNumber, status: order.order.status })
+        : `Order ${order.order.orderNumber} confirmed. Total $${Number(order.order.total).toFixed(2)}.`;
       return res.json({ emailMessage, smsMessage, logCount: logs.length });
     } catch {
       return res.status(500).json({ message: "Internal server error" });
@@ -1456,15 +2519,131 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/account/product-alerts", async (req, res) => {
+  app.get("/api/account/addresses", async (req, res) => {
     try {
       const session = await requireAuth(req);
       const rows = await db
         .select()
+        .from(savedAddresses)
+        .where(eq(savedAddresses.userEmail, session.email))
+        .orderBy(desc(savedAddresses.isDefault), desc(savedAddresses.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/account/addresses", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const input = z.object({
+        label: z.string().min(2).max(80),
+        recipientName: z.string().min(2).max(120),
+        shippingAddress: z.string().min(5).max(240),
+        city: z.string().min(2).max(120),
+        country: z.string().min(2).max(120),
+        isDefault: z.boolean().default(false),
+      }).parse(req.body);
+
+      if (input.isDefault) {
+        await db.update(savedAddresses).set({ isDefault: false }).where(eq(savedAddresses.userEmail, session.email));
+      }
+
+      const [row] = await db.insert(savedAddresses).values({
+        userEmail: session.email,
+        ...input,
+      }).returning();
+      return res.status(201).json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/account/addresses/:id", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        label: z.string().min(2).max(80).optional(),
+        recipientName: z.string().min(2).max(120).optional(),
+        shippingAddress: z.string().min(5).max(240).optional(),
+        city: z.string().min(2).max(120).optional(),
+        country: z.string().min(2).max(120).optional(),
+        isDefault: z.boolean().optional(),
+      }).parse(req.body);
+
+      if (input.isDefault) {
+        await db.update(savedAddresses).set({ isDefault: false }).where(eq(savedAddresses.userEmail, session.email));
+      }
+
+      const [row] = await db
+        .update(savedAddresses)
+        .set(input)
+        .where(and(eq(savedAddresses.id, id), eq(savedAddresses.userEmail, session.email)))
+        .returning();
+      if (!row) return res.status(404).json({ message: "Saved address not found" });
+      return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/account/addresses/:id", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const id = Number(req.params.id);
+      const [row] = await db
+        .delete(savedAddresses)
+        .where(and(eq(savedAddresses.id, id), eq(savedAddresses.userEmail, session.email)))
+        .returning();
+      if (!row) return res.status(404).json({ message: "Saved address not found" });
+      return res.json({ ok: true, removedId: id });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/account/product-alerts", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db
+        .select({
+          id: productAlerts.id,
+          productId: productAlerts.productId,
+          name: products.name,
+          nameTranslations: products.nameTranslations,
+          price: products.price,
+          categoryId: products.categoryId,
+        })
         .from(productAlerts)
+        .innerJoin(products, eq(products.id, productAlerts.productId))
         .where(eq(productAlerts.userEmail, session.email))
         .orderBy(desc(productAlerts.id));
-      return res.json(rows);
+      const lang = getRequestedLanguage(req);
+      return res.json(rows.map((row) => ({
+        id: row.id,
+        name: localizeStructuredText(row.name, row.nameTranslations, lang),
+        price: row.price,
+        categoryId: row.categoryId,
+      })));
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
         return res.status(401).json({ message: "Unauthorized" });
@@ -1919,6 +3098,7 @@ export async function registerRoutes(
       const quoteInput = {
         customerName: existingOrder.customerName,
         customerEmail: existingOrder.customerEmail,
+        customerPhone: existingOrder.customerPhone || undefined,
         shippingAddress: existingOrder.shippingAddress,
         city: existingOrder.city,
         country: existingOrder.country,
@@ -1958,10 +3138,20 @@ export async function registerRoutes(
       const referralBonusPoints = referralRows.length * 100;
       const points = Math.floor(spend) + referralBonusPoints;
       const tier = points >= 2000 ? "Gold" : points >= 800 ? "Silver" : "Bronze";
+      const nextTier = tier === "Bronze" ? "Silver" : tier === "Silver" ? "Gold" : null;
+      const nextTierThreshold = tier === "Bronze" ? 800 : tier === "Silver" ? 2000 : null;
+      const currentTierFloor = tier === "Bronze" ? 0 : tier === "Silver" ? 800 : 2000;
+      const pointsToNextTier = nextTierThreshold ? Math.max(0, nextTierThreshold - points) : 0;
+      const tierProgressPercent = nextTierThreshold
+        ? Math.min(100, Math.round(((points - currentTierFloor) / (nextTierThreshold - currentTierFloor)) * 100))
+        : 100;
       return res.json({
         totalSpend: spend,
         loyaltyPoints: points,
         tier,
+        nextTier,
+        pointsToNextTier,
+        tierProgressPercent,
         referralCode,
         referralsCount: referralRows.length,
         referralBonusPoints,
@@ -2069,6 +3259,7 @@ export async function registerRoutes(
     try {
       const session = await getSession(req);
       const input = z.object({
+        contactEmail: z.string().email().optional(),
         topic: z.string().min(3),
         message: z.string().min(5).max(1500),
       }).parse(req.body);
@@ -2076,6 +3267,7 @@ export async function registerRoutes(
         .insert(supportTickets)
         .values({
           userEmail: session?.email || null,
+          contactEmail: input.contactEmail || session?.email || null,
           topic: input.topic,
           message: input.message,
           status: "open",
@@ -2107,12 +3299,60 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/support-tickets", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db
+        .select()
+        .from(supportTickets)
+        .orderBy(desc(supportTickets.createdAt), desc(supportTickets.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof Error && err.message === "Forbidden") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/support-tickets/:id/status", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        status: z.enum(["open", "in_progress", "resolved"]),
+      }).parse(req.body);
+      const [row] = await db
+        .update(supportTickets)
+        .set({ status: input.status })
+        .where(eq(supportTickets.id, id))
+        .returning();
+      if (!row) return res.status(404).json({ message: "Support ticket not found" });
+      return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof Error && err.message === "Forbidden") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/returns/request", async (req, res) => {
     try {
       const session = await requireAuth(req);
       const input = z.object({
         orderId: z.number().int().positive(),
         reason: z.string().min(5).max(500),
+        resolution: z.enum(["refund", "exchange", "store_credit"]).default("refund"),
       }).parse(req.body);
       const [ownedOrder] = await db
         .select()
@@ -2128,6 +3368,8 @@ export async function registerRoutes(
           orderId: input.orderId,
           userEmail: session.email,
           reason: input.reason,
+          resolution: input.resolution,
+          refundCurrency: "USD",
           status: "requested",
         })
         .returning();
@@ -2224,7 +3466,13 @@ export async function registerRoutes(
       await requireAdmin(req);
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const rows = search
-        ? await db.select().from(products).where(ilike(products.name, `%${search}%`)).orderBy(desc(products.id))
+        ? await db
+            .select()
+            .from(products)
+            .where(
+              sql`(${products.name} ILIKE ${`%${search}%`} OR COALESCE(${products.nameTranslations}, '') ILIKE ${`%${search}%`})`,
+            )
+            .orderBy(desc(products.id))
         : await db.select().from(products).orderBy(desc(products.id));
       return res.json(rows);
     } catch (err) {
@@ -2240,6 +3488,8 @@ export async function registerRoutes(
       const input = z.object({
         name: z.string().min(2),
         description: z.string().min(3),
+        nameTranslations: localizedTextInputSchema,
+        descriptionTranslations: localizedTextInputSchema,
         price: z.number().positive(),
         imageUrl: mediaUrlSchema,
         imageGallery: z.array(mediaUrlSchema).default([]),
@@ -2251,6 +3501,8 @@ export async function registerRoutes(
       }).parse(req.body);
       const [row] = await db.insert(products).values({
         ...input,
+        nameTranslations: serializeTranslations(input.nameTranslations),
+        descriptionTranslations: serializeTranslations(input.descriptionTranslations),
         price: input.price.toFixed(2),
         rating: input.rating.toFixed(1),
       }).returning();
@@ -2270,6 +3522,8 @@ export async function registerRoutes(
       const input = z.object({
         name: z.string().min(2).optional(),
         description: z.string().min(3).optional(),
+        nameTranslations: localizedTextInputSchema,
+        descriptionTranslations: localizedTextInputSchema,
         price: z.number().positive().optional(),
         imageUrl: mediaUrlSchema.optional(),
         imageGallery: z.array(mediaUrlSchema).optional(),
@@ -2280,6 +3534,8 @@ export async function registerRoutes(
         stockQuantity: z.number().int().nonnegative().optional(),
       }).parse(req.body);
       const payload: Record<string, unknown> = { ...input };
+      if (input.nameTranslations !== undefined) payload.nameTranslations = serializeTranslations(input.nameTranslations);
+      if (input.descriptionTranslations !== undefined) payload.descriptionTranslations = serializeTranslations(input.descriptionTranslations);
       if (input.price !== undefined) payload.price = input.price.toFixed(2);
       if (input.rating !== undefined) payload.rating = input.rating.toFixed(1);
       const row = (await db.update(products).set(payload).where(eq(products.id, id)).returning())[0];
@@ -2435,6 +3691,38 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/promotions", async (_req, res) => {
+    try {
+      const now = new Date();
+      const rows = await db
+        .select()
+        .from(promotions)
+        .where(and(eq(promotions.active, true), lte(promotions.startsAt, now), gte(promotions.endsAt, now)))
+        .orderBy(asc(promotions.endsAt), desc(promotions.createdAt));
+      return res.json(rows);
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/coupons/public", async (_req, res) => {
+    try {
+      const rows = await db
+        .select({
+          code: coupons.code,
+          discountType: coupons.discountType,
+          value: coupons.value,
+          minSpend: coupons.minSpend,
+        })
+        .from(coupons)
+        .where(eq(coupons.active, true))
+        .orderBy(asc(coupons.code));
+      return res.json(rows);
+    } catch {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/admin/returns", async (req, res) => {
     try {
       await requireAdmin(req);
@@ -2452,15 +3740,22 @@ export async function registerRoutes(
       await requireAdmin(req);
       const id = Number(req.params.id);
       const input = z.object({
-        status: z.enum(["requested", "approved", "rejected", "refunded"]),
+        status: z.enum(["requested", "approved", "received", "refund_pending", "rejected", "refunded"]),
         note: z.string().optional(),
+        refundAmount: z.number().nonnegative().optional(),
+        adminNote: z.string().optional(),
       }).parse(req.body);
-      const [updated] = await db.update(returnRequests).set({ status: input.status }).where(eq(returnRequests.id, id)).returning();
+      const [updated] = await db.update(returnRequests).set({
+        status: input.status,
+        refundAmount: input.refundAmount !== undefined ? input.refundAmount.toFixed(2) : undefined,
+        refundCurrency: input.refundAmount !== undefined ? "USD" : undefined,
+        adminNote: input.adminNote,
+      }).where(eq(returnRequests.id, id)).returning();
       if (!updated) return res.status(404).json({ message: "Return request not found" });
       await db.insert(returnStatusEvents).values({
         returnRequestId: id,
         status: input.status,
-        note: input.note,
+        note: input.note || input.adminNote,
       });
       return res.json(updated);
     } catch (err) {
@@ -2476,6 +3771,7 @@ export async function registerRoutes(
       await requireAdmin(req);
       const search = typeof req.query.search === "string" ? req.query.search : "";
       const status = typeof req.query.status === "string" ? req.query.status : "";
+      const paymentStatus = typeof req.query.paymentStatus === "string" ? req.query.paymentStatus : "";
       const dateFrom = typeof req.query.dateFrom === "string" ? req.query.dateFrom : "";
       const dateTo = typeof req.query.dateTo === "string" ? req.query.dateTo : "";
 
@@ -2484,12 +3780,198 @@ export async function registerRoutes(
         conditions.push(sql`(${orders.orderNumber} ILIKE ${`%${search}%`} OR ${orders.customerEmail} ILIKE ${`%${search}%`})`);
       }
       if (status) conditions.push(eq(orders.status, status));
+      if (paymentStatus) conditions.push(eq(orderMeta.paymentStatus, paymentStatus));
       if (dateFrom) conditions.push(gte(orders.createdAt, new Date(dateFrom)));
       if (dateTo) conditions.push(lte(orders.createdAt, new Date(dateTo)));
 
       const rows = conditions.length > 0
-        ? await db.select().from(orders).where(and(...conditions)).orderBy(desc(orders.id))
-        : await db.select().from(orders).orderBy(desc(orders.id));
+        ? await db
+            .select({
+              ...getTableColumns(orders),
+              paymentMethod: orderMeta.paymentMethod,
+              paymentStatus: orderMeta.paymentStatus,
+              marketCountry: orderMeta.marketCountry,
+              currencyCode: orderMeta.currencyCode,
+              currencySymbol: orderMeta.currencySymbol,
+              exchangeRate: orderMeta.exchangeRate,
+            })
+            .from(orders)
+            .leftJoin(orderMeta, eq(orderMeta.orderId, orders.id))
+            .where(and(...conditions))
+            .orderBy(desc(orders.id))
+        : await db
+            .select({
+              ...getTableColumns(orders),
+              paymentMethod: orderMeta.paymentMethod,
+              paymentStatus: orderMeta.paymentStatus,
+              marketCountry: orderMeta.marketCountry,
+              currencyCode: orderMeta.currencyCode,
+              currencySymbol: orderMeta.currencySymbol,
+              exchangeRate: orderMeta.exchangeRate,
+            })
+            .from(orders)
+            .leftJoin(orderMeta, eq(orderMeta.orderId, orders.id))
+            .orderBy(desc(orders.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/customers", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+
+      const [orderRows, supportRows, returnRows, addressRows, userRows] = await Promise.all([
+        db.select({
+          customerEmail: orders.customerEmail,
+          customerName: orders.customerName,
+          total: orders.total,
+          status: orders.status,
+          createdAt: orders.createdAt,
+        }).from(orders),
+        db.select({
+          userEmail: supportTickets.userEmail,
+          contactEmail: supportTickets.contactEmail,
+          topic: supportTickets.topic,
+          status: supportTickets.status,
+          createdAt: supportTickets.createdAt,
+        }).from(supportTickets),
+        db.select({
+          userEmail: returnRequests.userEmail,
+          status: returnRequests.status,
+          createdAt: returnRequests.createdAt,
+        }).from(returnRequests),
+        db.select({
+          userEmail: savedAddresses.userEmail,
+          id: savedAddresses.id,
+        }).from(savedAddresses),
+        db.select({
+          email: users.email,
+          name: users.name,
+          createdAt: users.createdAt,
+        }).from(users).where(eq(users.role, "customer")),
+      ]);
+
+      const customerMap = new Map<string, {
+        email: string;
+        name: string;
+        totalOrders: number;
+        totalSpend: number;
+        openReturns: number;
+        supportTickets: number;
+        savedAddresses: number;
+        lastOrderAt: Date | null;
+        lastSupportAt: Date | null;
+        lastSeenAt: Date | null;
+        lastOrderStatus: string | null;
+        lastSupportTopic: string | null;
+        registered: boolean;
+        accountCreatedAt: Date | null;
+      }>();
+
+      const ensureCustomer = (emailRaw?: string | null, fallbackName?: string | null) => {
+        const email = emailRaw?.trim().toLowerCase();
+        if (!email) return null;
+        let customer = customerMap.get(email);
+        if (!customer) {
+          customer = {
+            email,
+            name: fallbackName?.trim() || "",
+            totalOrders: 0,
+            totalSpend: 0,
+            openReturns: 0,
+            supportTickets: 0,
+            savedAddresses: 0,
+            lastOrderAt: null,
+            lastSupportAt: null,
+            lastSeenAt: null,
+            lastOrderStatus: null,
+            lastSupportTopic: null,
+            registered: false,
+            accountCreatedAt: null,
+          };
+          customerMap.set(email, customer);
+        } else if (!customer.name && fallbackName) {
+          customer.name = fallbackName.trim();
+        }
+        return customer;
+      };
+
+      for (const row of userRows) {
+        const customer = ensureCustomer(row.email, row.name);
+        if (!customer) continue;
+        customer.registered = true;
+        customer.accountCreatedAt = row.createdAt;
+        if (!customer.name) customer.name = row.name;
+      }
+
+      for (const row of orderRows) {
+        const customer = ensureCustomer(row.customerEmail, row.customerName);
+        if (!customer) continue;
+        customer.totalOrders += 1;
+        customer.totalSpend += Number(row.total || 0);
+        if (!customer.lastOrderAt || row.createdAt > customer.lastOrderAt) {
+          customer.lastOrderAt = row.createdAt;
+          customer.lastOrderStatus = row.status;
+        }
+        if (!customer.lastSeenAt || row.createdAt > customer.lastSeenAt) {
+          customer.lastSeenAt = row.createdAt;
+        }
+      }
+
+      for (const row of supportRows) {
+        const customer = ensureCustomer(row.userEmail || row.contactEmail);
+        if (!customer) continue;
+        customer.supportTickets += 1;
+        if (!customer.lastSupportAt || row.createdAt > customer.lastSupportAt) {
+          customer.lastSupportAt = row.createdAt;
+          customer.lastSupportTopic = row.topic;
+        }
+        if (!customer.lastSeenAt || row.createdAt > customer.lastSeenAt) {
+          customer.lastSeenAt = row.createdAt;
+        }
+      }
+
+      for (const row of returnRows) {
+        const customer = ensureCustomer(row.userEmail);
+        if (!customer) continue;
+        if (row.status !== "completed" && row.status !== "rejected") {
+          customer.openReturns += 1;
+        }
+        if (!customer.lastSeenAt || row.createdAt > customer.lastSeenAt) {
+          customer.lastSeenAt = row.createdAt;
+        }
+      }
+
+      for (const row of addressRows) {
+        const customer = ensureCustomer(row.userEmail);
+        if (!customer) continue;
+        customer.savedAddresses += 1;
+      }
+
+      const rows = Array.from(customerMap.values())
+        .filter((row) => {
+          if (!search) return true;
+          return row.email.includes(search) || row.name.toLowerCase().includes(search);
+        })
+        .sort((a, b) => {
+          const aLast = a.lastSeenAt?.getTime() || 0;
+          const bLast = b.lastSeenAt?.getTime() || 0;
+          return bLast - aLast || b.totalSpend - a.totalSpend || b.totalOrders - a.totalOrders;
+        })
+        .map((row) => ({
+          ...row,
+          totalSpend: roundCurrency(row.totalSpend),
+          lastOrderAt: row.lastOrderAt?.toISOString() || null,
+          lastSupportAt: row.lastSupportAt?.toISOString() || null,
+          lastSeenAt: row.lastSeenAt?.toISOString() || null,
+          accountCreatedAt: row.accountCreatedAt?.toISOString() || null,
+        }));
+
       return res.json(rows);
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
@@ -2507,11 +3989,113 @@ export async function registerRoutes(
       }).parse(req.body);
       const row = (await db.update(orders).set({ status: input.status }).where(eq(orders.id, id)).returning())[0];
       if (!row) return res.status(404).json({ message: "Order not found" });
+      const statusEmail = buildOrderStatusUpdateEmail({
+        customerName: row.customerName,
+        orderNumber: row.orderNumber,
+        status: row.status,
+      });
+      const emailSent = await sendTransactionalEmail(
+        row.customerEmail,
+        statusEmail.subject,
+        statusEmail.text,
+      ).catch(() => false);
+      await db.insert(notificationLogs).values({
+        orderId: row.id,
+        channel: "email",
+        message: emailSent ? statusEmail.subject : `${statusEmail.subject} (delivery not configured)`,
+      });
+      await db.insert(notificationLogs).values({
+        orderId: row.id,
+        channel: "order_status",
+        message: `Order status updated to ${row.status}`,
+      });
+      if (row.customerPhone) {
+        const smsSent = await sendSmsOrWhatsApp(
+          row.customerPhone,
+          buildOrderStatusSms({ orderNumber: row.orderNumber, status: row.status }),
+        ).catch(() => false);
+        await db.insert(notificationLogs).values({
+          orderId: row.id,
+          channel: "sms",
+          message: smsSent
+            ? `Order status SMS sent to ${row.customerPhone}`
+            : `Order status SMS prepared for ${row.customerPhone}`,
+        });
+      }
       await sendSmsOrWhatsApp(
         process.env.TWILIO_TO || "",
         `UrugoBuy: Order ${row.orderNumber} status changed to ${row.status}.`,
       ).catch(() => undefined);
       return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/orders/:id/shipment", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        carrier: z.string().min(2),
+        trackingNumber: z.string().min(3),
+        trackingUrl: z.string().url().optional().or(z.literal("")),
+        shippingNote: z.string().max(500).optional(),
+        markStatus: z.enum(["packed", "shipped", "delivered"]).default("shipped"),
+      }).parse(req.body);
+      const order = await storage.getOrder(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      await db.insert(orderMeta).values({
+        orderId: id,
+        shipmentCarrier: input.carrier,
+        trackingNumber: input.trackingNumber,
+        trackingUrl: input.trackingUrl || null,
+        shippingNote: input.shippingNote,
+        shippedAt: input.markStatus === "shipped" || input.markStatus === "delivered" ? new Date() : null,
+        deliveredAt: input.markStatus === "delivered" ? new Date() : null,
+      }).onConflictDoUpdate({
+        target: orderMeta.orderId,
+        set: {
+          shipmentCarrier: input.carrier,
+          trackingNumber: input.trackingNumber,
+          trackingUrl: input.trackingUrl || null,
+          shippingNote: input.shippingNote,
+          shippedAt: input.markStatus === "shipped" || input.markStatus === "delivered" ? new Date() : orderMeta.shippedAt,
+          deliveredAt: input.markStatus === "delivered" ? new Date() : orderMeta.deliveredAt,
+        },
+      });
+
+      await db.update(orders).set({ status: input.markStatus }).where(eq(orders.id, id));
+      const shipmentEmail = buildShipmentUpdateEmail({
+        customerName: order.order.customerName,
+        orderNumber: order.order.orderNumber,
+        carrier: input.carrier,
+        trackingNumber: input.trackingNumber,
+        trackingUrl: input.trackingUrl || null,
+      });
+      const emailSent = await sendTransactionalEmail(
+        order.order.customerEmail,
+        shipmentEmail.subject,
+        shipmentEmail.text,
+      ).catch(() => false);
+      if (order.order.customerPhone) {
+        await sendSmsOrWhatsApp(
+          order.order.customerPhone,
+          `UrugoBuy: ${input.carrier} tracking for ${order.order.orderNumber} is ${input.trackingNumber}.`,
+        ).catch(() => undefined);
+      }
+      await db.insert(notificationLogs).values({
+        orderId: id,
+        channel: "email",
+        message: emailSent
+          ? `Shipment tracking emailed to ${order.order.customerEmail}`
+          : `Shipment tracking prepared for ${order.order.customerEmail}`,
+      });
+      return res.json({ ok: true });
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
       if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
@@ -2528,6 +4112,221 @@ export async function registerRoutes(
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
       if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/categories", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const input = z.object({
+        name: z.string().min(2),
+        slug: z.string().min(2),
+        imageUrl: optionalMediaUrlSchema,
+        nameTranslations: localizedTextInputSchema,
+      }).parse(req.body);
+      const [row] = await db.insert(categories).values({
+        name: input.name,
+        slug: input.slug,
+        imageUrl: input.imageUrl,
+        nameTranslations: serializeTranslations(input.nameTranslations),
+      }).returning();
+      return res.status(201).json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/categories/:id", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        name: z.string().min(2).optional(),
+        slug: z.string().min(2).optional(),
+        imageUrl: optionalMediaUrlSchema,
+        nameTranslations: localizedTextInputSchema,
+      }).parse(req.body);
+      const payload: Record<string, unknown> = {};
+      if (input.name !== undefined) payload.name = input.name;
+      if (input.slug !== undefined) payload.slug = input.slug;
+      if (input.imageUrl !== undefined) payload.imageUrl = input.imageUrl;
+      if (input.nameTranslations !== undefined) payload.nameTranslations = serializeTranslations(input.nameTranslations);
+      const [row] = await db.update(categories).set(payload).where(eq(categories.id, id)).returning();
+      if (!row) return res.status(404).json({ message: "Category not found" });
+      return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/content-pages", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db.select().from(contentPages).orderBy(asc(contentPages.slug));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/content-pages", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const input = z.object({
+        slug: z.string().min(2),
+        title: z.string().min(2),
+        titleTranslations: localizedTextInputSchema,
+        description: z.string().min(2),
+        descriptionTranslations: localizedTextInputSchema,
+        body: z.string().min(2),
+        bodyTranslations: localizedTextInputSchema,
+        seoJsonLd: z.string().optional(),
+        published: z.boolean().default(true),
+      }).parse(req.body);
+      const [row] = await db.insert(contentPages).values({
+        slug: input.slug,
+        title: input.title,
+        titleTranslations: serializeTranslations(input.titleTranslations),
+        description: input.description,
+        descriptionTranslations: serializeTranslations(input.descriptionTranslations),
+        body: input.body,
+        bodyTranslations: serializeTranslations(input.bodyTranslations),
+        seoJsonLd: input.seoJsonLd?.trim() || null,
+        published: input.published,
+      }).returning();
+      return res.status(201).json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/content-pages/:id", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        slug: z.string().min(2).optional(),
+        title: z.string().min(2).optional(),
+        titleTranslations: localizedTextInputSchema,
+        description: z.string().min(2).optional(),
+        descriptionTranslations: localizedTextInputSchema,
+        body: z.string().min(2).optional(),
+        bodyTranslations: localizedTextInputSchema,
+        seoJsonLd: z.string().optional(),
+        published: z.boolean().optional(),
+      }).parse(req.body);
+      const payload: Record<string, unknown> = {};
+      if (input.slug !== undefined) payload.slug = input.slug;
+      if (input.title !== undefined) payload.title = input.title;
+      if (input.titleTranslations !== undefined) payload.titleTranslations = serializeTranslations(input.titleTranslations);
+      if (input.description !== undefined) payload.description = input.description;
+      if (input.descriptionTranslations !== undefined) payload.descriptionTranslations = serializeTranslations(input.descriptionTranslations);
+      if (input.body !== undefined) payload.body = input.body;
+      if (input.bodyTranslations !== undefined) payload.bodyTranslations = serializeTranslations(input.bodyTranslations);
+      if (input.seoJsonLd !== undefined) payload.seoJsonLd = input.seoJsonLd.trim() || null;
+      if (input.published !== undefined) payload.published = input.published;
+      payload.updatedAt = new Date();
+      const [row] = await db.update(contentPages).set(payload).where(eq(contentPages.id, id)).returning();
+      if (!row) return res.status(404).json({ message: "Content page not found" });
+      return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/admin/blog-posts", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const rows = await db.select().from(blogPosts).orderBy(desc(blogPosts.publishedAt), desc(blogPosts.id));
+      return res.json(rows);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/blog-posts", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const input = z.object({
+        slug: z.string().min(2),
+        title: z.string().min(2),
+        titleTranslations: localizedTextInputSchema,
+        excerpt: z.string().min(2),
+        excerptTranslations: localizedTextInputSchema,
+        body: z.string().min(2),
+        bodyTranslations: localizedTextInputSchema,
+        coverImageUrl: optionalMediaUrlSchema,
+        published: z.boolean().default(true),
+      }).parse(req.body);
+      const [row] = await db.insert(blogPosts).values({
+        slug: input.slug,
+        title: input.title,
+        titleTranslations: serializeTranslations(input.titleTranslations),
+        excerpt: input.excerpt,
+        excerptTranslations: serializeTranslations(input.excerptTranslations),
+        body: input.body,
+        bodyTranslations: serializeTranslations(input.bodyTranslations),
+        coverImageUrl: input.coverImageUrl,
+        published: input.published,
+      }).returning();
+      return res.status(201).json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/blog-posts/:id", async (req, res) => {
+    try {
+      await requireAdmin(req);
+      const id = Number(req.params.id);
+      const input = z.object({
+        slug: z.string().min(2).optional(),
+        title: z.string().min(2).optional(),
+        titleTranslations: localizedTextInputSchema,
+        excerpt: z.string().min(2).optional(),
+        excerptTranslations: localizedTextInputSchema,
+        body: z.string().min(2).optional(),
+        bodyTranslations: localizedTextInputSchema,
+        coverImageUrl: optionalMediaUrlSchema,
+        published: z.boolean().optional(),
+      }).parse(req.body);
+      const payload: Record<string, unknown> = {};
+      if (input.slug !== undefined) payload.slug = input.slug;
+      if (input.title !== undefined) payload.title = input.title;
+      if (input.titleTranslations !== undefined) payload.titleTranslations = serializeTranslations(input.titleTranslations);
+      if (input.excerpt !== undefined) payload.excerpt = input.excerpt;
+      if (input.excerptTranslations !== undefined) payload.excerptTranslations = serializeTranslations(input.excerptTranslations);
+      if (input.body !== undefined) payload.body = input.body;
+      if (input.bodyTranslations !== undefined) payload.bodyTranslations = serializeTranslations(input.bodyTranslations);
+      if (input.coverImageUrl !== undefined) payload.coverImageUrl = input.coverImageUrl;
+      if (input.published !== undefined) payload.published = input.published;
+      const [row] = await db.update(blogPosts).set(payload).where(eq(blogPosts.id, id)).returning();
+      if (!row) return res.status(404).json({ message: "Blog post not found" });
+      return res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") return res.status(401).json({ message: "Unauthorized" });
+      if (err instanceof Error && err.message === "Forbidden") return res.status(403).json({ message: "Forbidden" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       return res.status(500).json({ message: "Internal server error" });
     }
   });

@@ -44,6 +44,8 @@ export function Navbar() {
   const navLinks = [
     { name: t("nav.home"), path: "/" },
     { name: t("nav.shop"), path: "/shop" },
+    { name: t("nav.deals"), path: "/deals" },
+    { name: t("nav.help"), path: "/faq" },
     ...(user ? [{ name: t("nav.account"), path: "/account" }] : []),
     ...(user?.role === "admin" ? [{ name: t("nav.admin"), path: "/admin" }] : []),
   ];

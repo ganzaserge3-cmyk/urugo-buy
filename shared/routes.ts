@@ -49,6 +49,7 @@ export const api = {
         maxPrice: z.coerce.number().nonnegative().optional(),
         sort: z.enum(['newest', 'price-asc', 'price-desc', 'rating-desc', 'name-asc']).optional(),
         search: z.string().optional(),
+        lang: z.enum(['en', 'fr', 'ar', 'rw']).optional(),
       }).optional(),
       responses: {
         200: z.array(z.custom<typeof products.$inferSelect>()),
@@ -82,6 +83,8 @@ export const api = {
         couponCode: z.string().optional(),
         giftCardCode: z.string().optional(),
         country: z.string().optional(),
+        fulfillmentType: z.enum(["delivery", "pickup"]).optional(),
+        shippingService: z.enum(["economy", "priority", "express", "pickup"]).optional(),
         items: z.array(
           z.object({
             productId: z.number().int().positive(),
@@ -105,6 +108,22 @@ export const api = {
             currencyCode: z.string(),
             currencySymbol: z.string(),
             exchangeRate: z.number(),
+            shippingZone: z.string(),
+            estimatedDaysMin: z.number(),
+            estimatedDaysMax: z.number(),
+            freeShippingThreshold: z.number(),
+            customsNotice: z.string().nullable(),
+            supportedPaymentMethods: z.array(z.enum(["card", "paypal", "momo", "cod"])),
+            preferredPaymentMethod: z.enum(["card", "paypal", "momo", "cod"]),
+            supportedFulfillmentTypes: z.array(z.enum(["delivery", "pickup"])),
+            shippingServices: z.array(z.object({
+              id: z.enum(["economy", "priority", "express", "pickup"]),
+              fulfillmentType: z.enum(["delivery", "pickup"]),
+              fee: z.number(),
+              estimatedDaysMin: z.number(),
+              estimatedDaysMax: z.number(),
+            })),
+            selectedShippingService: z.enum(["economy", "priority", "express", "pickup"]),
           }),
           converted: z.object({
             subtotal: z.number(),
@@ -119,6 +138,74 @@ export const api = {
       },
     },
   },
+  payments: {
+    session: {
+      method: 'GET' as const,
+      path: '/api/payments/:orderId/session' as const,
+      responses: {
+        200: z.object({
+          orderId: z.number(),
+          orderNumber: z.string(),
+          amount: z.number(),
+          currencyCode: z.string(),
+          method: z.enum(["card", "paypal", "momo"]),
+          provider: z.enum(["demo", "paypal"]),
+          status: z.enum(["created", "approved", "captured", "failed", "expired"]),
+          approvalUrl: z.string().url().nullable(),
+          expiresAt: z.string(),
+        }),
+        404: errorSchemas.notFound,
+      },
+    },
+    resume: {
+      method: 'GET' as const,
+      path: '/api/payments/:orderId/resume' as const,
+      responses: {
+        200: z.object({
+          checkoutUrl: z.string().url(),
+          sessionToken: z.string(),
+          expiresAt: z.string(),
+          provider: z.enum(["demo", "paypal"]),
+          method: z.enum(["card", "paypal", "momo"]),
+        }),
+        404: errorSchemas.notFound,
+      },
+    },
+    restart: {
+      method: 'POST' as const,
+      path: '/api/payments/:orderId/restart' as const,
+      responses: {
+        200: z.object({
+          checkoutUrl: z.string().url(),
+          sessionToken: z.string(),
+          expiresAt: z.string(),
+          provider: z.enum(["demo", "paypal"]),
+          method: z.enum(["card", "paypal", "momo"]),
+        }),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    confirm: {
+      method: 'POST' as const,
+      path: '/api/payments/:orderId/confirm' as const,
+      input: z.object({
+        sessionToken: z.string().min(8),
+        action: z.enum(["confirm", "fail"]).default("confirm"),
+        payerId: z.string().optional(),
+        providerToken: z.string().optional(),
+      }),
+      responses: {
+        200: z.object({
+          ok: z.literal(true),
+          paymentStatus: z.enum(["paid", "payment_failed"]),
+          orderStatus: z.enum(["paid", "payment_failed"]),
+        }),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
   orders: {
     create: {
       method: 'POST' as const,
@@ -126,12 +213,15 @@ export const api = {
       input: z.object({
         customerName: z.string().min(2, "Customer name is required"),
         customerEmail: z.string().email("Invalid email address"),
+        customerPhone: z.string().min(7, "Phone number is required").max(30).optional(),
         shippingAddress: z.string().min(5, "Shipping address is required"),
         city: z.string().min(2, "City is required"),
         country: z.string().min(2).default("USA"),
         couponCode: z.string().optional(),
         giftCardCode: z.string().optional(),
         deliverySlot: z.string().optional(),
+        fulfillmentType: z.enum(["delivery", "pickup"]).optional(),
+        shippingService: z.enum(["economy", "priority", "express", "pickup"]).optional(),
         paymentMethod: z.enum(["card", "paypal", "momo", "cod"]).optional(),
         items: z.array(
           z.object({
@@ -146,6 +236,15 @@ export const api = {
           orderNumber: z.string(),
           total: z.number(),
           status: z.string(),
+          accessToken: z.string(),
+          payment: z.object({
+            required: z.boolean(),
+            method: z.enum(["card", "paypal", "momo", "cod"]),
+            provider: z.enum(["demo", "paypal"]).nullable(),
+            checkoutUrl: z.string().url().nullable(),
+            sessionToken: z.string().nullable(),
+            expiresAt: z.string().nullable(),
+          }).optional(),
         }),
         400: errorSchemas.validation,
       },
@@ -160,6 +259,7 @@ export const api = {
             orderNumber: z.string(),
             customerName: z.string(),
             customerEmail: z.string(),
+            customerPhone: z.string().optional().nullable(),
             shippingAddress: z.string(),
             city: z.string(),
             country: z.string(),
@@ -174,6 +274,13 @@ export const api = {
             deliverySlot: z.string().optional(),
             paymentMethod: z.string().optional(),
             paymentStatus: z.string().optional(),
+            shippingService: z.string().optional(),
+            shipmentCarrier: z.string().optional().nullable(),
+            trackingNumber: z.string().optional().nullable(),
+            trackingUrl: z.string().optional().nullable(),
+            shippingNote: z.string().optional().nullable(),
+            shippedAt: z.string().or(z.date()).optional().nullable(),
+            deliveredAt: z.string().or(z.date()).optional().nullable(),
             marketCountry: z.string().optional(),
             currencyCode: z.string().optional(),
             currencySymbol: z.string().optional(),
@@ -191,6 +298,22 @@ export const api = {
               lineTotal: z.string(),
             }),
           ),
+        }),
+        404: errorSchemas.notFound,
+      },
+    },
+    lookup: {
+      method: 'POST' as const,
+      path: '/api/orders/lookup' as const,
+      input: z.object({
+        orderNumber: z.string().min(3),
+        email: z.string().email(),
+      }),
+      responses: {
+        200: z.object({
+          orderId: z.number(),
+          orderNumber: z.string(),
+          accessToken: z.string(),
         }),
         404: errorSchemas.notFound,
       },

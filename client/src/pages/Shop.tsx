@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -219,15 +219,19 @@ export default function Shop() {
                   {t("shop.allCategories")}
                 </button>
                 {categories?.map(category => (
-                  <button
-                    key={category.id}
-                    onClick={() => setActiveCategory(category.id)}
-                    className={`text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                      activeCategory === category.id ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {category.name}
-                  </button>
+                  <div key={category.id} className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActiveCategory(category.id)}
+                      className={`flex-1 text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        activeCategory === category.id ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {category.name}
+                    </button>
+                    <Link href={`/category/${category.slug}`} className="text-xs text-muted-foreground hover:text-primary">
+                      View
+                    </Link>
+                  </div>
                 ))}
               </div>
             </div>

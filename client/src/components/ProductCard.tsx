@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Star, ShoppingBag } from "lucide-react";
+import { Scale, Star, ShoppingBag } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/hooks/use-cart";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
 import { normalizeProductImageUrl } from "@/lib/images";
 import { useI18n } from "@/lib/i18n";
+import { getCompareProductIds, toggleCompareProduct } from "@/lib/compare";
 
 interface ProductCardProps {
   product: Product;
@@ -25,10 +26,15 @@ export function ProductCard({ product }: ProductCardProps) {
   };
   const primaryImage = normalizeProductImageUrl(product.imageUrl, product.id, imageContext);
   const [imageSrc, setImageSrc] = useState(primaryImage);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
 
   useEffect(() => {
     setImageSrc(primaryImage);
   }, [primaryImage]);
+
+  useEffect(() => {
+    setCompareIds(getCompareProductIds());
+  }, []);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent navigating if wrapped in Link
@@ -46,6 +52,18 @@ export function ProductCard({ product }: ProductCardProps) {
       description: t("product.addedToCartSingle", { name: product.name }),
     });
   };
+
+  const handleToggleCompare = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const next = toggleCompareProduct(product.id);
+    setCompareIds(next);
+    toast({
+      title: next.includes(product.id) ? "Added to compare" : "Removed from compare",
+      description: next.length > 1 ? "You can review products side by side on the compare page." : "Select at least two products to compare them.",
+    });
+  };
+
+  const inCompare = compareIds.includes(product.id);
 
   return (
     <motion.div 
@@ -94,19 +112,29 @@ export function ProductCard({ product }: ProductCardProps) {
           {product.description || t("product.fallbackDescription")}
         </p>
         
-        <div className="flex items-center justify-between mt-auto pt-3 sm:pt-4 border-t border-border/50">
+        <div className="flex items-center justify-between mt-auto pt-3 sm:pt-4 border-t border-border/50 gap-2">
           <span className="font-display font-bold text-lg sm:text-xl text-foreground">
             {formatCurrency(product.price)}
           </span>
-          <Button 
-            onClick={handleAddToCart} 
-            size="sm" 
-            disabled={isOutOfStock}
-            className="rounded-full h-8 sm:h-9 px-3 sm:px-5 text-xs sm:text-sm font-medium transition-transform active:scale-95"
-          >
-            <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
-            {t("product.add")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleToggleCompare}
+              size="icon"
+              variant={inCompare ? "default" : "outline"}
+              className="rounded-full h-8 w-8 sm:h-9 sm:w-9"
+            >
+              <Scale className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </Button>
+            <Button 
+              onClick={handleAddToCart} 
+              size="sm" 
+              disabled={isOutOfStock}
+              className="rounded-full h-8 sm:h-9 px-3 sm:px-5 text-xs sm:text-sm font-medium transition-transform active:scale-95"
+            >
+              <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
+              {t("product.add")}
+            </Button>
+          </div>
         </div>
       </div>
     </motion.div>

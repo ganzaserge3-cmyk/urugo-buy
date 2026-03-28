@@ -26,6 +26,25 @@ export default function Home() {
   const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
 
   const recentlyViewedProducts = allProducts.filter((product) => recentlyViewedIds.includes(product.id)).slice(0, 4);
+  const recentlyViewedSet = new Set(recentlyViewedIds);
+  const recentlyViewedCategories = new Set(
+    recentlyViewedProducts
+      .map((product) => product.categoryId)
+      .filter((value): value is number => value !== null),
+  );
+  const recommendedProducts = allProducts
+    .filter((product) => !recentlyViewedSet.has(product.id))
+    .sort((a, b) => {
+      const aCategoryBoost = recentlyViewedCategories.has(a.categoryId ?? -1) ? 1 : 0;
+      const bCategoryBoost = recentlyViewedCategories.has(b.categoryId ?? -1) ? 1 : 0;
+      return (
+        bCategoryBoost - aCategoryBoost ||
+        Number(b.isFeatured) - Number(a.isFeatured) ||
+        Number(b.rating) - Number(a.rating) ||
+        Number(a.price) - Number(b.price)
+      );
+    })
+    .slice(0, 4);
 
   useEffect(() => {
     try {
@@ -51,6 +70,11 @@ export default function Home() {
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-12 pb-24 lg:pt-24 lg:pb-32 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-muted via-background to-background" />
+        <div className="pointer-events-none absolute right-[4%] top-12 hidden lg:block">
+          <div className="cloud-orbit">
+            <div className="hero-cloud scale-90" />
+          </div>
+        </div>
         
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
           <motion.div 
@@ -91,6 +115,17 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="relative lg:h-[600px] rounded-[2rem] overflow-hidden bg-muted border border-border/50 shadow-2xl"
           >
+            <div className="pointer-events-none absolute left-5 top-5 z-10 sm:left-6 sm:top-6">
+              <div className="rounded-[1.75rem] border border-white/65 bg-white/72 px-4 py-3 shadow-[0_24px_60px_rgba(15,107,75,0.14)] backdrop-blur-xl dark:border-white/10 dark:bg-background/55">
+                <div className="flex items-center gap-3">
+                  <div className="hero-cloud scale-[0.72] origin-left" />
+                  <div className="space-y-1.5">
+                    <div className="h-2 w-20 rounded-full bg-primary/18 dark:bg-primary/28" />
+                    <div className="h-2 w-14 rounded-full bg-accent/45 dark:bg-accent/35" />
+                  </div>
+                </div>
+              </div>
+            </div>
             {/* landing page hero fruits and food */}
             <img 
               src="https://images.unsplash.com/photo-1610832958506-aa56368176cf?q=80&w=2070&auto=format&fit=crop"
@@ -117,6 +152,57 @@ export default function Home() {
               <p className="text-sm text-muted-foreground mt-1">{item.label}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="py-10 bg-background border-b border-border/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="rounded-[2rem] border border-border bg-card p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-2">{t("home.dealsEyebrow")}</p>
+              <h2 className="font-display text-3xl font-bold mb-2">{t("home.dealsTitle")}</h2>
+              <p className="text-muted-foreground max-w-2xl">{t("home.dealsBody")}</p>
+            </div>
+            <div className="flex gap-3">
+              <Button className="rounded-full" asChild>
+                <Link href="/deals">{t("home.viewDeals")}</Link>
+              </Button>
+              <Button variant="outline" className="rounded-full" asChild>
+                <Link href="/checkout">{t("home.useCoupon")}</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-12 bg-background border-b border-border/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="rounded-[2rem] border border-border bg-card p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-8">
+              <div>
+                <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-2">{t("home.globalEyebrow")}</p>
+                <h2 className="font-display text-3xl font-bold mb-2">{t("home.globalTitle")}</h2>
+                <p className="text-muted-foreground max-w-3xl">{t("home.globalBody")}</p>
+              </div>
+              <Button variant="outline" className="rounded-full shrink-0" asChild>
+                <Link href="/international-shopping">{t("home.globalCta")}</Link>
+              </Button>
+            </div>
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                { code: "US", label: "English", note: "USD • domestic shipping" },
+                { code: "FR", label: "Francais", note: "EUR • VAT-aware checkout" },
+                { code: "AE", label: "Arabic", note: "AED • RTL storefront" },
+                { code: "RW", label: "Kinyarwanda", note: "RWF • Rwanda-ready flow" },
+              ].map((entry) => (
+                <div key={entry.code} className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-sm text-primary/70">{entry.code}</p>
+                  <p className="font-display text-2xl font-semibold mt-1">{entry.label}</p>
+                  <p className="text-sm text-muted-foreground mt-2">{entry.note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -195,6 +281,27 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {recommendedProducts.length > 0 && (
+        <section className="py-20 bg-background border-t border-border/50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
+              <div>
+                <h2 className="font-display text-3xl font-bold mb-2">{t("home.recommendedTitle")}</h2>
+                <p className="text-muted-foreground max-w-2xl">{t("home.recommendedBody")}</p>
+              </div>
+              <Button variant="outline" className="rounded-full shrink-0" asChild>
+                <Link href="/compare">{t("home.compareCta")}</Link>
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
+              {recommendedProducts.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="py-20 bg-background border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

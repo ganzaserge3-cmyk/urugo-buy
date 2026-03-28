@@ -44,6 +44,7 @@ export default function Account() {
   const [supportMessage, setSupportMessage] = useState("");
   const [returnOrderId, setReturnOrderId] = useState("");
   const [returnReason, setReturnReason] = useState("");
+  const [returnResolution, setReturnResolution] = useState("refund");
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "bot"; text: string }>>([
     { role: "bot", text: t("account.chat.welcome") },
@@ -56,8 +57,16 @@ export default function Account() {
   const [orderQuery, setOrderQuery] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
   const [supportTickets, setSupportTickets] = useState<Array<{ id: number; topic: string; message: string; status: string; createdAt: string }>>([]);
-  const [returnsHistory, setReturnsHistory] = useState<Array<{ id: number; orderId: number; reason: string; status: string; createdAt: string; timeline?: Array<{ id: number; status: string; note?: string | null; createdAt: string }> }>>([]);
+  const [returnsHistory, setReturnsHistory] = useState<Array<{ id: number; orderId: number; reason: string; resolution?: string | null; refundAmount?: string | null; refundCurrency?: string | null; adminNote?: string | null; status: string; createdAt: string; timeline?: Array<{ id: number; status: string; note?: string | null; createdAt: string }> }>>([]);
   const [notificationDevices, setNotificationDevices] = useState<Array<{ id: number; endpoint: string; platform: string; createdAt: string }>>([]);
+  const [savedAddresses, setSavedAddresses] = useState<Array<{ id: number; label: string; recipientName: string; shippingAddress: string; city: string; country: string; isDefault: boolean }>>([]);
+  const [addressForm, setAddressForm] = useState({
+    label: "",
+    recipientName: "",
+    shippingAddress: "",
+    city: "",
+    country: "",
+  });
 
   useEffect(() => {
     if (preferences) setLocalPrefs(preferences);
@@ -86,6 +95,11 @@ export default function Account() {
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => setNotificationDevices(Array.isArray(rows) ? rows : []))
       .catch(() => setNotificationDevices([]));
+
+    authFetch("/api/account/addresses")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setSavedAddresses(Array.isArray(rows) ? rows : []))
+      .catch(() => setSavedAddresses([]));
   }, [token]);
 
   const siteBaseUrl = useMemo(() => {
@@ -132,7 +146,7 @@ export default function Account() {
       toast({
         variant: "destructive",
         title: t("account.toast.saveFailed"),
-        description: error instanceof Error ? error.message : "Please try again",
+        description: error instanceof Error ? error.message : t("common.tryAgain"),
       });
     }
   };
@@ -140,7 +154,7 @@ export default function Account() {
   const handleReorder = async (orderId: number) => {
     const res = await authFetch(`/api/account/reorder/${orderId}`, { method: "POST" });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({ message: "Reorder failed" }));
+      const payload = await res.json().catch(() => ({ message: t("account.toast.reorderFailed") }));
       toast({ variant: "destructive", title: t("account.toast.reorderFailed"), description: payload.message });
       return;
     }
@@ -157,7 +171,7 @@ export default function Account() {
       body: JSON.stringify({ topic: supportTopic, message: supportMessage }),
     });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({ message: "Failed to submit ticket" }));
+      const payload = await res.json().catch(() => ({ message: t("account.toast.ticketFailed") }));
       toast({ variant: "destructive", title: t("account.toast.ticketFailed"), description: payload.message });
       return;
     }
@@ -174,15 +188,16 @@ export default function Account() {
     const res = await authFetch("/api/returns/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, reason: returnReason }),
+      body: JSON.stringify({ orderId, reason: returnReason, resolution: returnResolution }),
     });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({ message: "Return request failed" }));
+      const payload = await res.json().catch(() => ({ message: t("account.toast.returnFailed") }));
       toast({ variant: "destructive", title: t("account.toast.returnFailed"), description: payload.message });
       return;
     }
     setReturnOrderId("");
     setReturnReason("");
+    setReturnResolution("refund");
     toast({ title: t("account.toast.returnSubmitted") });
     const rows = await authFetch("/api/account/returns").then((r) => (r.ok ? r.json() : []));
     setReturnsHistory(Array.isArray(rows) ? rows : []);
@@ -198,9 +213,9 @@ export default function Account() {
       const res = await authFetch("/api/support/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: "Live chat request", message: next }),
+        body: JSON.stringify({ topic: t("account.liveChatRequest"), message: next }),
       });
-      if (!res.ok) throw new Error("Support request failed");
+      if (!res.ok) throw new Error(t("account.chatRequestFailed"));
       const rows = await authFetch("/api/account/support/tickets").then((r) => (r.ok ? r.json() : []));
       setSupportTickets(Array.isArray(rows) ? rows : []);
       setChatMessages((prev) => [
@@ -224,7 +239,7 @@ export default function Account() {
       toast({
         variant: "destructive",
         title: t("account.toast.shareFailed"),
-        description: error instanceof Error ? error.message : "Try again",
+        description: error instanceof Error ? error.message : t("common.tryAgain"),
       });
     }
   };
@@ -236,7 +251,7 @@ export default function Account() {
       body: JSON.stringify({ purpose: "settings" }),
     });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({ message: "Failed to send code" }));
+      const payload = await res.json().catch(() => ({ message: t("account.toast.2faSendFailed") }));
       toast({ variant: "destructive", title: t("account.toast.2faSendFailed"), description: payload.message });
       return;
     }
@@ -252,7 +267,7 @@ export default function Account() {
       body: JSON.stringify({ purpose: "settings", code: twoFactorCode }),
     });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({ message: "Verification failed" }));
+      const payload = await res.json().catch(() => ({ message: t("account.toast.2faVerifyFailed") }));
       toast({ variant: "destructive", title: t("account.toast.2faVerifyFailed"), description: payload.message });
       setTwoFactorVerified(false);
       return;
@@ -311,6 +326,48 @@ export default function Account() {
     toast({ title: t("account.toast.deviceRemoved") });
   };
 
+  const handleSaveAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await authFetch("/api/account/addresses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...addressForm,
+        isDefault: savedAddresses.length === 0,
+      }),
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ message: "Failed to save address" }));
+      toast({ variant: "destructive", title: t("account.toast.saveFailed"), description: payload.message });
+      return;
+    }
+    setAddressForm({ label: "", recipientName: "", shippingAddress: "", city: "", country: "" });
+    const rows = await authFetch("/api/account/addresses").then((r) => (r.ok ? r.json() : []));
+    setSavedAddresses(Array.isArray(rows) ? rows : []);
+    toast({ title: t("account.toast.addressSaved") });
+  };
+
+  const makeAddressDefault = async (id: number) => {
+    const address = savedAddresses.find((row) => row.id === id);
+    if (!address) return;
+    const res = await authFetch(`/api/account/addresses/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...address, isDefault: true }),
+    });
+    if (!res.ok) return;
+    const rows = await authFetch("/api/account/addresses").then((r) => (r.ok ? r.json() : []));
+    setSavedAddresses(Array.isArray(rows) ? rows : []);
+    toast({ title: t("account.toast.addressDefault") });
+  };
+
+  const deleteAddress = async (id: number) => {
+    const res = await authFetch(`/api/account/addresses/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+    setSavedAddresses((prev) => prev.filter((address) => address.id !== id));
+    toast({ title: t("account.toast.addressDeleted") });
+  };
+
   const skipSubscriptionNext = async (id: number) => {
     const res = await authFetch(`/api/subscriptions/${id}`, {
       method: "PATCH",
@@ -335,7 +392,7 @@ export default function Account() {
       toast({
         variant: "destructive",
         title: t("account.toast.referralFailed"),
-        description: error instanceof Error ? error.message : "Please try again",
+        description: error instanceof Error ? error.message : t("common.tryAgain"),
       });
     }
   };
@@ -376,6 +433,20 @@ export default function Account() {
             <p className="text-sm text-muted-foreground">
               {t("account.referralBody")}
             </p>
+            <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-2">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Tier progress</span>
+                <span className="font-medium">
+                  {summary?.nextTier ? `${summary.pointsToNextTier} points to ${summary.nextTier}` : "Top tier reached"}
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${summary?.tierProgressPercent ?? 0}%` }}
+                />
+              </div>
+            </div>
             <div className="flex gap-2">
               <Input
                 placeholder={t("account.enterReferral")}
@@ -384,6 +455,19 @@ export default function Account() {
               />
               <Button onClick={handleRedeemReferral} disabled={redeemReferral.isPending}>
                 {t("account.redeem")}
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Input value={summary?.referralCode ?? ""} readOnly />
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (!summary?.referralCode) return;
+                  await navigator.clipboard.writeText(summary.referralCode);
+                  toast({ title: t("account.toast.linkCopied") });
+                }}
+              >
+                Copy code
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -538,6 +622,78 @@ export default function Account() {
           </div>
         </section>
 
+        <section className="grid lg:grid-cols-2 gap-6">
+          <form onSubmit={handleSaveAddress} className="border border-border rounded-2xl p-5 bg-card space-y-3">
+            <h2 className="font-display text-2xl font-semibold">{t("account.addresses")}</h2>
+            <p className="text-sm text-muted-foreground">{t("account.addressesBody")}</p>
+            <Input
+              placeholder={t("account.addressLabel")}
+              value={addressForm.label}
+              onChange={(e) => setAddressForm((prev) => ({ ...prev, label: e.target.value }))}
+              required
+            />
+            <Input
+              placeholder={t("account.recipientName")}
+              value={addressForm.recipientName}
+              onChange={(e) => setAddressForm((prev) => ({ ...prev, recipientName: e.target.value }))}
+              required
+            />
+            <Input
+              placeholder={t("checkout.shippingAddress")}
+              value={addressForm.shippingAddress}
+              onChange={(e) => setAddressForm((prev) => ({ ...prev, shippingAddress: e.target.value }))}
+              required
+            />
+            <div className="grid md:grid-cols-2 gap-3">
+              <Input
+                placeholder={t("checkout.city")}
+                value={addressForm.city}
+                onChange={(e) => setAddressForm((prev) => ({ ...prev, city: e.target.value }))}
+                required
+              />
+              <Input
+                placeholder={t("checkout.country")}
+                value={addressForm.country}
+                onChange={(e) => setAddressForm((prev) => ({ ...prev, country: e.target.value }))}
+                required
+              />
+            </div>
+            <Button type="submit" className="rounded-full">{t("account.saveAddress")}</Button>
+          </form>
+
+          <div className="border border-border rounded-2xl p-5 bg-card space-y-3">
+            <h2 className="font-display text-2xl font-semibold">{t("checkout.savedAddresses")}</h2>
+            {savedAddresses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("account.noAddresses")}</p>
+            ) : (
+              savedAddresses.map((address) => (
+                <div key={address.id} className="rounded-xl border border-border p-4 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        {address.label}{address.isDefault ? ` - ${t("checkout.savedDefault")}` : ""}
+                      </p>
+                      <p className="text-muted-foreground">{address.recipientName}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {!address.isDefault && (
+                        <Button size="sm" variant="outline" onClick={() => makeAddressDefault(address.id)}>
+                          {t("account.makeDefault")}
+                        </Button>
+                      )}
+                      <Button size="sm" variant="destructive" onClick={() => deleteAddress(address.id)}>
+                        {t("account.deleteAddress")}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground mt-2">{address.shippingAddress}</p>
+                  <p className="text-muted-foreground">{address.city}, {address.country}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="border border-border rounded-2xl p-5 bg-card">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <h2 className="font-display text-2xl font-semibold">{t("account.orderHistory")}</h2>
@@ -647,7 +803,7 @@ export default function Account() {
           <p className="text-sm text-muted-foreground mb-4">
             {t("account.returnsBody")}
           </p>
-          <form onSubmit={handleReturnRequest} className="grid md:grid-cols-3 gap-3">
+          <form onSubmit={handleReturnRequest} className="grid md:grid-cols-4 gap-3">
             <Input
               type="number"
               placeholder={t("account.orderId")}
@@ -661,6 +817,15 @@ export default function Account() {
               onChange={(e) => setReturnReason(e.target.value)}
               required
             />
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={returnResolution}
+              onChange={(e) => setReturnResolution(e.target.value)}
+            >
+              <option value="refund">Refund</option>
+              <option value="exchange">Exchange</option>
+              <option value="store_credit">Store credit</option>
+            </select>
             <Button type="submit" className="rounded-full">{t("account.requestReturn")}</Button>
           </form>
           <div className="space-y-3 mt-5">
@@ -674,6 +839,19 @@ export default function Account() {
                     <span className="capitalize text-muted-foreground">{row.status}</span>
                   </div>
                   <p className="text-muted-foreground mt-1">{row.reason}</p>
+                  {row.resolution && (
+                    <p className="text-xs text-muted-foreground mt-1 capitalize">
+                      Resolution: {row.resolution.replace("_", " ")}
+                    </p>
+                  )}
+                  {row.refundAmount && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Refund amount: {row.refundCurrency || "USD"} {row.refundAmount}
+                    </p>
+                  )}
+                  {row.adminNote && (
+                    <p className="text-xs text-muted-foreground mt-1">{row.adminNote}</p>
+                  )}
                   <p className="text-xs text-muted-foreground mt-2">{formatDateTime(row.createdAt)}</p>
                   {row.timeline && row.timeline.length > 0 && (
                     <div className="mt-3 space-y-2">

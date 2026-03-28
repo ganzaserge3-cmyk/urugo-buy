@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { UserPlus } from "lucide-react";
+import { Chrome, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -14,7 +14,7 @@ export default function Signup() {
   useSeo(t("auth.signupMetaTitle"), t("auth.signupMetaDescription"), { canonicalPath: "/signup" });
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { signup } = useAuth();
+  const { signup, loginWithGoogle } = useAuth();
   const firebaseEnabled = Boolean(auth);
 
   const [form, setForm] = useState({
@@ -47,7 +47,27 @@ export default function Signup() {
       toast({
         variant: "destructive",
         title: t("auth.signupFailed"),
-        description: error instanceof Error ? error.message : "Something went wrong.",
+        description: error instanceof Error ? error.message : t("common.somethingWentWrong"),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    setIsLoading(true);
+    try {
+      await loginWithGoogle();
+      toast({
+        title: t("auth.accountCreated"),
+        description: t("auth.accountCreatedBody"),
+      });
+      setLocation("/");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: t("auth.signupFailed"),
+        description: error instanceof Error ? error.message : t("common.somethingWentWrong"),
       });
     } finally {
       setIsLoading(false);
@@ -102,6 +122,10 @@ export default function Signup() {
           <Button type="submit" className="w-full rounded-full" disabled={isLoading || !firebaseEnabled}>
             <UserPlus className="w-4 h-4 mr-2" />
             {isLoading ? t("auth.creating") : t("auth.createEmail")}
+          </Button>
+          <Button type="button" variant="outline" className="w-full rounded-full" disabled={isLoading || !firebaseEnabled} onClick={handleGoogleSignup}>
+            <Chrome className="w-4 h-4 mr-2" />
+            {t("auth.continueWithGoogle")}
           </Button>
         </form>
 

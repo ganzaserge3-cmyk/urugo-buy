@@ -1,7 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
+import { ensureDatabaseTables } from "./db";
+import { validateEnv } from "./env";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import type { AddressInfo } from "net";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +63,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  validateEnv();
+  await ensureDatabaseTables();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -89,17 +94,38 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  const listenOptions: Parameters<typeof httpServer.listen>[0] = {
-    port,
-    host: "0.0.0.0",
+  const preferredPort = parseInt(process.env.PORT || "5000", 10);
+  const host = "0.0.0.0";
+  let activePort = preferredPort;
+
+  const startServer = (port: number) => {
+    activePort = port;
+    const listenOptions: Parameters<typeof httpServer.listen>[0] = {
+      port,
+      host,
+    };
+
+    if (process.platform !== "win32") {
+      Object.assign(listenOptions, { reusePort: true });
+    }
+
+    httpServer.listen(listenOptions, () => {
+      const address = httpServer.address() as AddressInfo | null;
+      const boundPort = address?.port ?? activePort;
+      log(`serving on port ${boundPort}`);
+    });
   };
 
-  if (process.platform !== "win32") {
-    Object.assign(listenOptions, { reusePort: true });
-  }
+  httpServer.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE" && !process.env.PORT) {
+      const nextPort = activePort + 1;
+      log(`port ${activePort} is busy, retrying on ${nextPort}`, "express");
+      startServer(nextPort);
+      return;
+    }
 
-  httpServer.listen(listenOptions, () => {
-    log(`serving on port ${port}`);
+    throw error;
   });
+
+  startServer(preferredPort);
 })();

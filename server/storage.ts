@@ -24,6 +24,7 @@ type CartLineInput = {
 type OrderInput = {
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   shippingAddress: string;
   city: string;
   country: string;
@@ -43,7 +44,7 @@ type OrderDetail = {
 };
 
 export interface IStorage {
-  getCategories(): Promise<Category[]>;
+  getCategories(lang?: string): Promise<Category[]>;
   getCategory(id: number): Promise<Category | undefined>;
   getProducts(filters?: {
     categoryId?: number;
@@ -53,8 +54,9 @@ export interface IStorage {
     maxPrice?: number;
     sort?: "newest" | "price-asc" | "price-desc" | "rating-desc" | "name-asc";
     search?: string;
+    lang?: "en" | "fr" | "ar" | "rw";
   }): Promise<Product[]>;
-  getProduct(id: number): Promise<Product | undefined>;
+  getProduct(id: number, lang?: "en" | "fr" | "ar" | "rw"): Promise<Product | undefined>;
   subscribe(subscriber: InsertSubscriber): Promise<Subscriber>;
   getSubscriberByEmail(email: string): Promise<Subscriber | undefined>;
   getCheckoutQuote(input: { items: CartLineInput[] }): Promise<OrderQuote>;
@@ -65,7 +67,9 @@ export interface IStorage {
 type ProductLike = {
   id: number;
   name: string;
+  nameTranslations?: string | null;
   description: string;
+  descriptionTranslations?: string | null;
   price: number;
   imageUrl: string;
   imageGallery: string[];
@@ -75,6 +79,22 @@ type ProductLike = {
   isFeatured: boolean;
   stockQuantity: number;
 };
+
+function parseTranslations(raw: string | null | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {};
+  } catch {
+    return {};
+  }
+}
+
+function localizeText(base: string, rawTranslations: string | null | undefined, lang?: string) {
+  if (!lang || lang === "en") return base;
+  const translations = parseTranslations(rawTranslations);
+  return translations[lang] || base;
+}
 
 export class DatabaseStorage implements IStorage {
   private applyDynamicPricing(product: ProductLike): ProductLike {
@@ -95,11 +115,13 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  private toSharedProduct(product: ProductLike): Product {
+  private toSharedProduct(product: ProductLike, lang?: string): Product {
     return {
       id: product.id,
-      name: product.name,
-      description: product.description,
+      name: localizeText(product.name, product.nameTranslations, lang),
+      nameTranslations: product.nameTranslations ?? null,
+      description: localizeText(product.description, product.descriptionTranslations, lang),
+      descriptionTranslations: product.descriptionTranslations ?? null,
       price: Number(product.price).toFixed(2),
       imageUrl: product.imageUrl,
       imageGallery: Array.isArray(product.imageGallery) ? product.imageGallery : [],
@@ -111,8 +133,12 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getCategories(): Promise<Category[]> {
-    return db.select().from(categories);
+  async getCategories(lang?: string): Promise<Category[]> {
+    const rows = await db.select().from(categories);
+    return rows.map((row) => ({
+      ...row,
+      name: localizeText(row.name, row.nameTranslations, lang),
+    }));
   }
 
   async getCategory(id: number): Promise<Category | undefined> {
@@ -128,6 +154,7 @@ export class DatabaseStorage implements IStorage {
     maxPrice?: number;
     sort?: "newest" | "price-asc" | "price-desc" | "rating-desc" | "name-asc";
     search?: string;
+    lang?: "en" | "fr" | "ar" | "rw";
   }): Promise<Product[]> {
     let query = db.select().from(products).$dynamic();
     const conditions = [];
@@ -137,7 +164,11 @@ export class DatabaseStorage implements IStorage {
     if (filters?.inStock) conditions.push(gte(products.stockQuantity, 1));
     if (filters?.minPrice !== undefined) conditions.push(sql`${products.price} >= ${filters.minPrice}`);
     if (filters?.maxPrice !== undefined) conditions.push(sql`${products.price} <= ${filters.maxPrice}`);
-    if (filters?.search) conditions.push(ilike(products.name, `%${filters.search}%`));
+    if (filters?.search) {
+      conditions.push(
+        sql`(${products.name} ILIKE ${`%${filters.search}%`} OR COALESCE(${products.nameTranslations}, '') ILIKE ${`%${filters.search}%`})`,
+      );
+    }
     if (conditions.length > 0) query = query.where(and(...conditions));
 
     switch (filters?.sort) {
@@ -165,7 +196,9 @@ export class DatabaseStorage implements IStorage {
         this.applyDynamicPricing({
           id: row.id,
           name: row.name,
+          nameTranslations: row.nameTranslations,
           description: row.description,
+          descriptionTranslations: row.descriptionTranslations,
           price: Number(row.price),
           imageUrl: row.imageUrl,
           imageGallery: row.imageGallery,
@@ -175,18 +208,21 @@ export class DatabaseStorage implements IStorage {
           isFeatured: Boolean(row.isFeatured),
           stockQuantity: row.stockQuantity,
         }),
+        filters?.lang,
       ),
     );
   }
 
-  async getProduct(id: number): Promise<Product | undefined> {
+  async getProduct(id: number, lang?: "en" | "fr" | "ar" | "rw"): Promise<Product | undefined> {
     const [row] = await db.select().from(products).where(eq(products.id, id));
     if (!row) return undefined;
     return this.toSharedProduct(
       this.applyDynamicPricing({
         id: row.id,
         name: row.name,
+        nameTranslations: row.nameTranslations,
         description: row.description,
+        descriptionTranslations: row.descriptionTranslations,
         price: Number(row.price),
         imageUrl: row.imageUrl,
         imageGallery: row.imageGallery,
@@ -196,6 +232,7 @@ export class DatabaseStorage implements IStorage {
         isFeatured: Boolean(row.isFeatured),
         stockQuantity: row.stockQuantity,
       }),
+      lang,
     );
   }
 
@@ -252,6 +289,7 @@ export class DatabaseStorage implements IStorage {
         orderNumber,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
+        customerPhone: input.customerPhone || null,
         shippingAddress: input.shippingAddress,
         city: input.city,
         country: input.country,

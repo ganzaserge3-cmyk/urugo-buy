@@ -20,6 +20,9 @@ export function useAccountSummary() {
         totalSpend: number;
         loyaltyPoints: number;
         tier: "Bronze" | "Silver" | "Gold";
+        nextTier: "Silver" | "Gold" | null;
+        pointsToNextTier: number;
+        tierProgressPercent: number;
         referralCode: string;
         referralsCount: number;
         referralBonusPoints: number;

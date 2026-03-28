@@ -126,9 +126,89 @@
       hsl(var(--background));
   }
 
+  .hero-cloud {
+    position: relative;
+    width: 9rem;
+    height: 3.9rem;
+    border-radius: 9999px;
+    border: 1px solid hsl(0 0% 100% / 0.78);
+    background:
+      radial-gradient(circle at 30% 30%, hsl(0 0% 100% / 0.98), hsl(150 24% 96% / 0.92) 62%, hsl(150 16% 89% / 0.95) 100%);
+    box-shadow:
+      0 16px 32px hsl(158 76% 24% / 0.14),
+      inset 0 -8px 16px hsl(154 18% 82% / 0.35);
+  }
+
+  .hero-cloud::before,
+  .hero-cloud::after {
+    content: "";
+    position: absolute;
+    bottom: 1.25rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 35% 30%, hsl(0 0% 100% / 0.98), hsl(150 24% 96% / 0.92) 66%, hsl(150 16% 89% / 0.95) 100%);
+    border: 1px solid hsl(0 0% 100% / 0.78);
+  }
+
+  .hero-cloud::before {
+    left: 0.8rem;
+    width: 3.2rem;
+    height: 3.2rem;
+  }
+
+  .hero-cloud::after {
+    right: 0.95rem;
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+  .cloud-orbit {
+    position: relative;
+    padding: 1.25rem 1.4rem;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, hsl(0 0% 100% / 0.42), hsl(150 20% 96% / 0.12));
+    border: 1px solid hsl(154 18% 88% / 0.7);
+    box-shadow: 0 20px 50px hsl(158 76% 24% / 0.1);
+    backdrop-filter: blur(16px);
+  }
+
+  .cloud-orbit::before {
+    content: "";
+    position: absolute;
+    inset: 0.55rem;
+    border-radius: 9999px;
+    border: 1px dashed hsl(158 76% 24% / 0.22);
+  }
+
   .dark .brand-logo-text {
     background: linear-gradient(135deg, #71d3a6 0%, #4fc58f 55%, #efc86a 100%);
     -webkit-background-clip: text;
     background-clip: text;
+  }
+
+  .dark .hero-cloud {
+    border-color: hsl(0 0% 100% / 0.12);
+    background:
+      radial-gradient(circle at 30% 30%, hsl(150 18% 96% / 0.95), hsl(156 16% 82% / 0.88) 62%, hsl(156 12% 68% / 0.92) 100%);
+    box-shadow:
+      0 16px 32px hsl(0 0% 0% / 0.28),
+      inset 0 -10px 18px hsl(156 18% 18% / 0.35);
+  }
+
+  .dark .hero-cloud::before,
+  .dark .hero-cloud::after {
+    border-color: hsl(0 0% 100% / 0.12);
+    background:
+      radial-gradient(circle at 35% 30%, hsl(150 18% 96% / 0.95), hsl(156 16% 82% / 0.88) 66%, hsl(156 12% 68% / 0.92) 100%);
+  }
+
+  .dark .cloud-orbit {
+    background: linear-gradient(135deg, hsl(156 18% 16% / 0.62), hsl(156 18% 11% / 0.3));
+    border-color: hsl(156 10% 22% / 0.9);
+    box-shadow: 0 20px 50px hsl(0 0% 0% / 0.22);
+  }
+
+  .dark .cloud-orbit::before {
+    border-color: hsl(153 56% 48% / 0.24);
   }
 }

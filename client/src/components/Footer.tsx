@@ -31,8 +31,11 @@ export function Footer() {
             <ul className="space-y-3">
               <li><Link href="/shop" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.allProducts")}</Link></li>
               <li><Link href="/shop?featured=true" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.featured")}</Link></li>
-              <li><Link href="/shop?categoryId=1" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.fruits")}</Link></li>
-              <li><Link href="/shop?categoryId=2" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.foods")}</Link></li>
+              <li><Link href="/category/fruits" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.fruits")}</Link></li>
+              <li><Link href="/category/foods" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.foods")}</Link></li>
+              <li><Link href="/deals" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.deals")}</Link></li>
+              <li><Link href="/compare" className="text-muted-foreground hover:text-primary transition-colors text-sm">Compare Products</Link></li>
+              <li><Link href="/track-order" className="text-muted-foreground hover:text-primary transition-colors text-sm">Track Order</Link></li>
             </ul>
           </div>
           
@@ -40,6 +43,10 @@ export function Footer() {
             <h4 className="font-display font-semibold mb-6">{t("footer.company")}</h4>
             <ul className="space-y-3">
               <li><Link href="/about-us" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.about")}</Link></li>
+              <li><Link href="/contact-us" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.contact")}</Link></li>
+              <li><Link href="/faq" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.faq")}</Link></li>
+              <li><Link href="/shipping-delivery" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.shipping")}</Link></li>
+              <li><Link href="/international-shopping" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.international")}</Link></li>
               <li><Link href="/careers" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.careers")}</Link></li>
               <li><Link href="/privacy-policy" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.privacy")}</Link></li>
               <li><Link href="/terms-of-service" className="text-muted-foreground hover:text-primary transition-colors text-sm">{t("footer.terms")}</Link></li>
