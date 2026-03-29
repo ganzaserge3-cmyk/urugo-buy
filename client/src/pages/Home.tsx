@@ -389,7 +389,7 @@ export default function Home() {
       </section>
 
       {/* Newsletter */}
-      <section className="py-24 premium-surface text-foreground relative overflow-hidden border-t border-border/50">
+      <section id="newsletter" className="py-24 premium-surface text-foreground relative overflow-hidden border-t border-border/50">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-primary/10 to-transparent" />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 relative text-center">
           <Mail className="w-12 h-12 mx-auto mb-6 text-primary" />
