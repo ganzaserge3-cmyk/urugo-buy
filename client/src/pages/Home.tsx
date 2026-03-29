@@ -13,10 +13,30 @@ import { useI18n } from "@/lib/i18n";
 
 export default function Home() {
   const { t, formatCurrency } = useI18n();
+  const homeJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "UrugoBuy",
+    url: typeof window !== "undefined" ? window.location.origin : "/",
+    description: t("home.metaDescription"),
+    potentialAction: {
+      "@type": "SearchAction",
+      target: typeof window !== "undefined"
+        ? `${window.location.origin}/shop?search={search_term_string}`
+        : "/shop?search={search_term_string}",
+      "query-input": "required name=search_term_string",
+    },
+  };
   useSeo(
     t("home.metaTitle"),
     t("home.metaDescription"),
-    { canonicalPath: "/" },
+    {
+      canonicalPath: "/",
+      image: "/logo-house.png",
+      type: "website",
+      keywords: ["fresh fruits", "online grocery", "food delivery", "fresh produce", "UrugoBuy"],
+      jsonLd: homeJsonLd,
+    },
   );
   const { data: categories, isLoading: isCategoriesLoading } = useCategories();
   const { data: featuredProducts, isLoading: isProductsLoading } = useProducts({ featured: true });

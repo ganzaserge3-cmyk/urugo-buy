@@ -55,7 +55,11 @@ export function useProduct(id: number) {
       try {
         const url = buildUrl(api.products.get.path, { id, lang: getStoredLanguageCode() });
         const res = await fetch(url);
-        if (res.status === 404) return null;
+        if (res.status === 404) {
+          const fallbackProduct = getFallbackProduct(id);
+          if (fallbackProduct) return fallbackProduct;
+          return null;
+        }
         if (!res.ok) throw new Error("Failed to fetch product");
         const data = await res.json();
         return api.products.get.responses[200].parse(data);

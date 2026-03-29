@@ -11,7 +11,11 @@ export default function ContactUs() {
   const { t } = useI18n();
   const { toast } = useToast();
   const { user } = useAuth();
-  useSeo(t("contact.metaTitle"), t("contact.metaDescription"), { canonicalPath: "/contact-us" });
+  useSeo(t("contact.metaTitle"), t("contact.metaDescription"), {
+    canonicalPath: "/contact-us",
+    keywords: ["contact UrugoBuy", "customer support", "business inquiry", "wholesale contact"],
+    type: "website",
+  });
 
   const [form, setForm] = useState({
     contactEmail: "",
@@ -59,6 +63,23 @@ export default function ContactUs() {
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">{t("contact.title")}</h1>
           <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">{t("contact.body")}</p>
 
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Email</p>
+              <p className="mt-2 font-medium text-foreground">support@urugobuy.com</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Use this address for support, advertising inquiries, partnerships, and business communication.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Typical Response</p>
+              <p className="mt-2 font-medium text-foreground">1-2 business days</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                We respond to general questions, policy requests, and partnership messages during business hours.
+              </p>
+            </div>
+          </div>
+
           <div className="mt-8 grid sm:grid-cols-3 gap-4">
             <Link href="/faq" className="rounded-2xl border border-border bg-muted/30 p-4 hover:border-primary transition-colors">
               <p className="font-medium">{t("contact.quickFaq")}</p>
@@ -77,6 +98,9 @@ export default function ContactUs() {
 
         <form onSubmit={handleSubmit} className="rounded-3xl border border-border bg-card p-8 space-y-4">
           <h2 className="font-display text-2xl font-semibold">{t("footer.contact")}</h2>
+          <p className="text-sm text-muted-foreground">
+            This contact form is intended for customer support, business inquiries, partnerships, and general website questions.
+          </p>
           <Input
             type="email"
             placeholder={t("contact.email")}

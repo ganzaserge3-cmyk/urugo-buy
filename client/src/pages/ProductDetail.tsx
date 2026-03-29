@@ -1,6 +1,6 @@
 import { useParams } from "wouter";
 import { useEffect, useMemo, useState } from "react";
-import { Star, ShoppingBag, ArrowLeft, Check, ShieldCheck, Package, Heart, ChevronLeft, ChevronRight } from "lucide-react";
+import { Star, ShoppingBag, ArrowLeft, Check, ShieldCheck, Package, Heart, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const [helpfulVotes, setHelpfulVotes] = useState<Record<number, number>>({});
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [questions, setQuestions] = useState<Array<{
     id: number;
     question: string;
@@ -69,6 +70,31 @@ export default function ProductDetail() {
   const mediaReviewCount = reviews.filter((review: { photoUrl?: string | null; videoUrl?: string | null }) => review.photoUrl || review.videoUrl).length;
   const marketGuide = getMarketGuide(market.code);
   const landedEstimate = estimateImportCharges(Number(product?.price || 0) * quantity, market.code);
+  const primaryProductImage = product ? normalizeProductImageUrl(product.imageUrl, product.id, imageContext) : "/logo-house.png";
+  const productJsonLd = product ? {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description: product.description,
+    image: [primaryProductImage],
+    sku: `urugobuy-${product.id}`,
+    brand: {
+      "@type": "Brand",
+      name: "UrugoBuy",
+    },
+    offers: {
+      "@type": "Offer",
+      priceCurrency: market.currency,
+      price: Number(product.price).toFixed(2),
+      availability: product.stockQuantity > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      url: typeof window !== "undefined" ? `${window.location.origin}/product/${product.id}` : `/product/${product.id}`,
+    },
+    aggregateRating: Number(product.rating) > 0 ? {
+      "@type": "AggregateRating",
+      ratingValue: Number(product.rating).toFixed(1),
+      reviewCount: Math.max(reviews.length, 1),
+    } : undefined,
+  } : undefined;
 
   const maskEmail = (value: string) => {
     const [local, domain] = value.split("@");
@@ -82,7 +108,13 @@ export default function ProductDetail() {
   useSeo(
     product ? `${product.name} - UrugoBuy` : t("product.metaTitle"),
     product ? product.description : t("product.metaDescription"),
-    { canonicalPath: product ? `/product/${product.id}` : "/shop" },
+    {
+      canonicalPath: product ? `/product/${product.id}` : "/shop",
+      image: primaryProductImage,
+      type: "product",
+      keywords: product ? [product.name, "buy online", "fresh food", "UrugoBuy"] : ["product", "UrugoBuy"],
+      jsonLd: productJsonLd,
+    },
   );
 
   const productImages = useMemo(() => {
@@ -265,6 +297,33 @@ export default function ProductDetail() {
     setHelpfulVotes((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 0) + 1 }));
   };
 
+  const bestForMatch = product.description.match(/(?:ideal|perfect|great|suited|ready)\s+for\s+([^.]*)/i);
+  const packageMatch = product.name.match(/(box|basket|punnet|bag|pack|tray|pair|duo|single|crate|tub|jar|bottle|dozen|loaf|fillet|bundle)/i);
+  const productDetailCards = [
+    {
+      title: "What you get",
+      body: product.description,
+    },
+    {
+      title: "Pack format",
+      body: packageMatch
+        ? `${packageMatch[0][0].toUpperCase()}${packageMatch[0].slice(1)} format prepared for ecommerce browsing and quick add-to-cart decisions.`
+        : "Single product listing with clear quantity, pricing, and image coverage.",
+    },
+    {
+      title: "Best for",
+      body: bestForMatch
+        ? bestForMatch[1][0].toUpperCase() + bestForMatch[1].slice(1)
+        : product.categoryId === 1
+          ? "Fresh snacking, breakfast prep, smoothies, and family fruit bowls."
+          : "Meal prep, daily cooking, pantry restocking, and home kitchen planning.",
+    },
+    {
+      title: "Shopper confidence",
+      body: `${variantStock} units available right now with a ${formatNumber(product.rating)}/5 rating and a four-image gallery for closer inspection.`,
+    },
+  ];
+
   const submitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetch(`/api/products/${product.id}/questions`, {
@@ -315,12 +374,19 @@ export default function ProductDetail() {
           {/* Images */}
           <div>
             <div className="aspect-[4/5] md:aspect-square bg-muted rounded-[2rem] overflow-hidden border border-border relative">
+                <button
+                type="button"
+                onClick={() => setIsLightboxOpen(true)}
+                className="h-full w-full"
+                aria-label={`Open larger gallery view for ${product.name}`}
+              >
                 <img 
                 src={imageSrc}
                 alt={product.name} 
                 onError={() => setImageSrc(normalizeProductImageUrl(undefined, product.id, imageContext))}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition-transform duration-500 hover:scale-[1.03]"
               />
+              </button>
               {hasMultipleImages && (
                 <>
                   <button
@@ -356,7 +422,8 @@ export default function ProductDetail() {
             {hasMultipleImages && (
               <div className="mt-4 grid grid-cols-3 gap-3">
                 {productImages.map((image, index) => (
-                  <button
+                  <div key={`${product.id}-thumb-wrap-${index}`} className="space-y-2">
+                    <button
                     key={`${product.id}-thumb-${index}`}
                     type="button"
                     onClick={() => goToImage(index)}
@@ -372,10 +439,20 @@ export default function ProductDetail() {
                       }}
                       className="w-full h-full object-cover"
                     />
-                  </button>
+                    </button>
+                    <p className="text-xs text-center text-muted-foreground">View {index + 1}</p>
+                  </div>
                 ))}
               </div>
             )}
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              {productDetailCards.slice(0, 2).map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">{item.title}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-foreground/85">{item.body}</p>
+                </div>
+              ))}
+            </div>
           </div>
           
           {/* Details */}
@@ -408,6 +485,14 @@ export default function ProductDetail() {
             <p className="text-lg text-muted-foreground leading-relaxed mb-8 border-b border-border pb-8">
               {product.description || t("product.fallbackDescription")}
             </p>
+            <div className="grid gap-4 sm:grid-cols-2 mb-8">
+              {productDetailCards.map((item) => (
+                <div key={item.title} className="rounded-3xl border border-border bg-muted/20 p-5">
+                  <p className="text-xs uppercase tracking-[0.24em] text-primary/70">{item.title}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+                </div>
+              ))}
+            </div>
             <div className="grid sm:grid-cols-2 gap-3 mb-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-2">{t("product.size")}</p>
@@ -745,6 +830,65 @@ export default function ProductDetail() {
           </section>
         )}
       </div>
+      {isLightboxOpen && (
+        <div className="fixed inset-0 z-50 bg-black/90 px-4 py-6">
+          <div className="mx-auto flex h-full max-w-6xl flex-col">
+            <div className="mb-4 flex items-center justify-between text-white">
+              <div>
+                <p className="text-sm uppercase tracking-[0.24em] text-white/70">Product Gallery</p>
+                <h2 className="font-display text-2xl font-bold">{product.name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLightboxOpen(false)}
+                className="rounded-full border border-white/20 bg-white/10 p-3 hover:bg-white/20"
+                aria-label="Close gallery"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="relative flex-1 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
+              <img
+                src={imageSrc}
+                alt={product.name}
+                className="h-full w-full object-contain"
+              />
+              {hasMultipleImages && (
+                <>
+                  <button
+                    type="button"
+                    onClick={goToPrevImage}
+                    className="absolute left-4 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+                    aria-label={t("product.previousImage")}
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextImage}
+                    className="absolute right-4 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+                    aria-label={t("product.nextImage")}
+                  >
+                    <ChevronRight className="h-6 w-6" />
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="mt-4 grid grid-cols-4 gap-3">
+              {productImages.map((image, index) => (
+                <button
+                  key={`${product.id}-lightbox-thumb-${index}`}
+                  type="button"
+                  onClick={() => goToImage(index)}
+                  className={`overflow-hidden rounded-2xl border-2 ${index === activeImageIndex ? "border-primary" : "border-white/10"}`}
+                >
+                  <img src={image} alt={`${product.name} detail ${index + 1}`} className="aspect-square w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

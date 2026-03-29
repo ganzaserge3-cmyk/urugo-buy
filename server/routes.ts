@@ -227,6 +227,15 @@ function buildPaymentStatusEmail(args: {
   };
 }
 
+function xmlEscape(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function formatOrderStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
@@ -998,6 +1007,106 @@ export async function registerRoutes(
   app.use("/api/auth", createRateLimiter(20, 15 * 60 * 1000));
   app.use("/api/checkout/quote", createRateLimiter(60, 15 * 60 * 1000));
   app.use("/api/orders", createRateLimiter(40, 15 * 60 * 1000));
+
+  app.get("/robots.txt", (req, res) => {
+    const origin = `${req.protocol}://${req.get("host")}`;
+    res.type("text/plain").send([
+      "User-agent: *",
+      "Allow: /",
+      "Disallow: /admin",
+      "Disallow: /account",
+      "Disallow: /checkout",
+      "Disallow: /login",
+      "Disallow: /signup",
+      "Disallow: /order-success",
+      `Sitemap: ${origin}/sitemap.xml`,
+    ].join("\n"));
+  });
+
+  app.get("/sitemap.xml", async (req, res) => {
+    const origin = `${req.protocol}://${req.get("host")}`;
+    type SitemapEntry = {
+      loc: string;
+      changefreq: string;
+      priority: string;
+      lastmod?: string;
+    };
+    const staticRoutes = [
+      "/",
+      "/shop",
+      "/deals",
+      "/about-us",
+      "/careers",
+      "/contact-us",
+      "/faq",
+      "/shipping-delivery",
+      "/international-shopping",
+      "/privacy-policy",
+      "/terms-of-service",
+      "/blog",
+      "/track-order",
+      "/compare",
+    ];
+
+    const [productRows, categoryRows, blogRows, contentRows] = await Promise.all([
+      db.select({ id: products.id }).from(products),
+      db.select({ slug: categories.slug }).from(categories),
+      db
+        .select({ slug: blogPosts.slug, publishedAt: blogPosts.publishedAt })
+        .from(blogPosts)
+        .where(eq(blogPosts.published, true)),
+      db
+        .select({ slug: contentPages.slug, updatedAt: contentPages.updatedAt })
+        .from(contentPages)
+        .where(eq(contentPages.published, true)),
+    ]);
+
+    const urls: SitemapEntry[] = [
+      ...staticRoutes.map((path) => ({
+        loc: `${origin}${path}`,
+        changefreq: path === "/" ? "daily" : "weekly",
+        priority: path === "/" ? "1.0" : path === "/shop" ? "0.9" : "0.7",
+      })),
+      ...categoryRows.map((category) => ({
+        loc: `${origin}/category/${category.slug}`,
+        changefreq: "weekly",
+        priority: "0.8",
+      })),
+      ...productRows.map((product) => ({
+        loc: `${origin}/product/${product.id}`,
+        changefreq: "weekly",
+        priority: "0.8",
+      })),
+      ...blogRows.map((post) => ({
+        loc: `${origin}/blog/${post.slug}`,
+        lastmod: post.publishedAt?.toISOString(),
+        changefreq: "monthly",
+        priority: "0.7",
+      })),
+      ...contentRows.map((page) => ({
+        loc: `${origin}/content/${page.slug}`,
+        lastmod: page.updatedAt?.toISOString(),
+        changefreq: "monthly",
+        priority: "0.6",
+      })),
+    ];
+
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+      ...urls.map((entry) => [
+        "  <url>",
+        `    <loc>${xmlEscape(entry.loc)}</loc>`,
+        entry.lastmod ? `    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>` : null,
+        `    <changefreq>${entry.changefreq}</changefreq>`,
+        `    <priority>${entry.priority}</priority>`,
+        "  </url>",
+      ].filter(Boolean).join("\n")),
+      "</urlset>",
+    ].join("\n");
+
+    res.type("application/xml").send(xml);
+  });
 
   app.post("/api/auth/signup", async (req, res) => {
     try {

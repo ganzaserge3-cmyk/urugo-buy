@@ -1,0 +1,4 @@
+# AdSense Integration Placeholder
+# Replace the example below with your real Google AdSense ads.txt line after approval.
+# Example format:
+# google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0
