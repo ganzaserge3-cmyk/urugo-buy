@@ -81,6 +81,32 @@ export default function ContactUs() {
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
+            {[
+              {
+                title: "Before you contact us",
+                body: "It can help to include the product name, order number, or the main question you need answered so we can respond faster.",
+              },
+              {
+                title: "What support covers",
+                body: "We can help with product clarification, order questions, account or checkout support, and general site feedback.",
+              },
+              {
+                title: "What to expect",
+                body: "Support replies aim to be clear and practical. If we need more information, we will let you know what details are missing.",
+              },
+              {
+                title: "Business communication",
+                body: "For general business inquiries, partnership questions, or operational requests, you can use the same public contact details below.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-2xl border border-border bg-background p-5">
+                <h2 className="font-display text-xl font-semibold text-foreground">{item.title}</h2>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border bg-muted/30 p-4">
               <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Contact Information</p>
               <p className="mt-2 font-medium text-foreground">Email: urugobuy@gmail.com</p>
@@ -111,6 +137,24 @@ export default function ContactUs() {
             </p>
           </div>
 
+          <div className="mt-4 rounded-2xl border border-border bg-card p-5">
+            <h2 className="font-display text-2xl font-semibold text-foreground">Helpful Contact Notes</h2>
+            <div className="mt-4 space-y-3 text-sm leading-relaxed text-muted-foreground">
+              <p>
+                If your message is about a product, telling us what you want to confirm can speed things up. For example,
+                you can ask about product availability, expected delivery timing, or what is included in a listing.
+              </p>
+              <p>
+                If your message is about an order, include the email used at checkout and any order number you have. That
+                helps us review the request more accurately and point you to the right next step.
+              </p>
+              <p>
+                If your message is general feedback, suggestions are welcome too. UrugoBuy is being improved over time,
+                and customer feedback helps us understand where the experience can become clearer and more useful.
+              </p>
+            </div>
+          </div>
+
           <p className="mt-6 text-sm font-medium text-foreground">UrugoBuy - We're here for you.</p>
 
           <div className="mt-8 grid sm:grid-cols-3 gap-4">
@@ -129,7 +173,7 @@ export default function ContactUs() {
           </div>
         </section>
 
-        <form onSubmit={handleSubmit} className="rounded-3xl border border-border bg-card p-8 space-y-4">
+        <form onSubmit={handleSubmit} className="rounded-3xl border border-border bg-card p-8 space-y-4 self-start">
           <h2 className="font-display text-2xl font-semibold">Send Us a Message</h2>
           <p className="text-sm text-muted-foreground">
             Please fill out the form below and we will get back to you shortly.
@@ -157,6 +201,13 @@ export default function ContactUs() {
           <Button type="submit" className="rounded-full w-full" disabled={isSubmitting}>
             {isSubmitting ? t("contact.sending") : "Send Message"}
           </Button>
+          <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm leading-relaxed text-muted-foreground">
+            <p className="font-medium text-foreground">Why this form exists</p>
+            <p className="mt-2">
+              A complete business website should give visitors a direct way to ask questions, report issues, and request support.
+              This form helps keep that support path visible and easy to use.
+            </p>
+          </div>
         </form>
       </div>
     </div>

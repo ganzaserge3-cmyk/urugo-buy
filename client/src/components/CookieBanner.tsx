@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 
 const COOKIE_CONSENT_KEY = "urugobuy-cookie-consent";
@@ -44,9 +45,9 @@ export function CookieBanner() {
                 We use essential cookies to keep the website secure, remember basic preferences, support core features such as cart and account flows,
                 and understand overall site performance. With your permission, we may also use optional cookies for analytics and future advertising services.
                 You can accept all cookies or reject non-essential cookies. To learn more, please review our{" "}
-                <a href="/privacy-policy" className="font-medium text-foreground underline underline-offset-4 hover:text-primary">
+                <Link href="/privacy-policy" className="font-medium text-foreground underline underline-offset-4 hover:text-primary">
                   Privacy Policy
-                </a>.
+                </Link>.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col lg:min-w-[220px]">

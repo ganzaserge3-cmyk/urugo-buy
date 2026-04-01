@@ -299,6 +299,7 @@ export default function ProductDetail() {
 
   const bestForMatch = product.description.match(/(?:ideal|perfect|great|suited|ready)\s+for\s+([^.]*)/i);
   const packageMatch = product.name.match(/(box|basket|punnet|bag|pack|tray|pair|duo|single|crate|tub|jar|bottle|dozen|loaf|fillet|bundle)/i);
+  const productCategoryLabel = product.categoryId === 1 ? "Fresh produce" : product.categoryId === 2 ? "Food and pantry" : "Everyday essentials";
   const productDetailCards = [
     {
       title: "What you get",
@@ -321,6 +322,33 @@ export default function ProductDetail() {
     {
       title: "Shopper confidence",
       body: `${variantStock} units available right now with a ${formatNumber(product.rating)}/5 rating and a four-image gallery for closer inspection.`,
+    },
+  ];
+  const productSpecRows = [
+    { label: "Category", value: productCategoryLabel },
+    { label: "Gallery views", value: `${productImages.length} product image${productImages.length === 1 ? "" : "s"}` },
+    { label: "Selected size", value: selectedSize[0].toUpperCase() + selectedSize.slice(1) },
+    { label: "Selected pack", value: selectedPack[0].toUpperCase() + selectedPack.slice(1) },
+    { label: "Availability", value: isOutOfStock ? "Currently out of stock" : `${variantStock} units available` },
+    { label: "Rating", value: `${formatNumber(product.rating)}/5` },
+  ];
+  const buyingHighlights = [
+    "Multiple gallery views help shoppers inspect the product more clearly before adding it to cart.",
+    "The product page combines pricing, stock, delivery guidance, reviews, and questions in one place.",
+    "You can save the item, compare it, or share the product link before making a decision.",
+  ];
+  const deliverySupportCards = [
+    {
+      title: "Ordering guidance",
+      body: "Review the product gallery, quantity, pack option, and delivery estimate before checkout so you know what to expect.",
+    },
+    {
+      title: "Delivery expectations",
+      body: `Current delivery guidance for ${market.label} is about ${marketGuide.deliveryDays[0]}-${marketGuide.deliveryDays[1]} days depending on stock readiness and destination.`,
+    },
+    {
+      title: "Support path",
+      body: "If something is unclear, shoppers can use the Contact page, product questions, or order tracking pages for follow-up support.",
     },
   ];
 
@@ -372,7 +400,18 @@ export default function ProductDetail() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20">
           
           {/* Images */}
-          <div>
+          <div className="self-start lg:sticky lg:top-28">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                {productCategoryLabel}
+              </span>
+              <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                {productImages.length} gallery view{productImages.length === 1 ? "" : "s"}
+              </span>
+              <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                Zoomable product gallery
+              </span>
+            </div>
             <div className="aspect-[4/5] md:aspect-square bg-muted rounded-[2rem] overflow-hidden border border-border relative">
                 <button
                 type="button"
@@ -445,6 +484,21 @@ export default function ProductDetail() {
                 ))}
               </div>
             )}
+            <div className="mt-4 rounded-3xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-primary/70">Product Gallery</p>
+                  <h2 className="mt-2 font-display text-2xl font-semibold">See the product from more angles</h2>
+                </div>
+                <Button variant="outline" className="rounded-full" onClick={() => setIsLightboxOpen(true)}>
+                  Open gallery
+                </Button>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                UrugoBuy product pages are designed to give shoppers more than a single image. You can browse the gallery,
+                zoom into the main photo, compare views, and review the product details before adding it to cart.
+              </p>
+            </div>
             <div className="mt-6 grid grid-cols-2 gap-3">
               {productDetailCards.slice(0, 2).map((item) => (
                 <div key={item.title} className="rounded-2xl border border-border bg-background p-4">
@@ -457,6 +511,11 @@ export default function ProductDetail() {
           
           {/* Details */}
           <div className="flex flex-col justify-center">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">Complete product details</span>
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">Delivery guidance included</span>
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">Reviews and questions below</span>
+            </div>
             {product.isFeatured && (
               <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-primary text-primary-foreground mb-4 w-max">
                 <Star className="w-3 h-3 mr-1 fill-current" /> {t("product.featuredBadge")}
@@ -650,6 +709,49 @@ export default function ProductDetail() {
             </Button>
           </div>
         </div>
+        <section className="mt-14 border-t border-border pt-10">
+          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-[2rem] border border-border bg-card p-6 md:p-8">
+              <p className="text-xs uppercase tracking-[0.24em] text-primary/70">Product overview</p>
+              <h2 className="mt-2 font-display text-3xl font-bold">Everything a shopper should understand before checkout</h2>
+              <p className="mt-4 text-muted-foreground leading-relaxed">
+                This section pulls the most important product information into one place so visitors can review the product,
+                compare options, and decide with more confidence. It is meant to feel closer to a full e-commerce detail page
+                than a simple image-and-price layout.
+              </p>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {productSpecRows.map((row) => (
+                  <div key={row.label} className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{row.label}</p>
+                    <p className="mt-2 font-medium text-foreground">{row.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-[2rem] border border-border bg-card p-6 md:p-8">
+              <p className="text-xs uppercase tracking-[0.24em] text-primary/70">Why this page is fuller</p>
+              <h2 className="mt-2 font-display text-3xl font-bold">More detail, more context, less guesswork</h2>
+              <div className="mt-5 space-y-4">
+                {buyingHighlights.map((item) => (
+                  <div key={item} className="flex gap-3 rounded-2xl border border-border bg-background p-4">
+                    <Check className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                    <p className="text-sm leading-relaxed text-muted-foreground">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="mt-14 border-t border-border pt-10">
+          <div className="grid gap-6 md:grid-cols-3">
+            {deliverySupportCards.map((item) => (
+              <div key={item.title} className="rounded-[2rem] border border-border bg-card p-6">
+                <p className="text-xs uppercase tracking-[0.24em] text-primary/70">{item.title}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
         <section className="mt-14 border-t border-border pt-10">
           <h2 className="font-display text-3xl font-bold mb-4">{t("product.customerReviews")}</h2>
           <div className="grid gap-3 md:grid-cols-3 mb-6">

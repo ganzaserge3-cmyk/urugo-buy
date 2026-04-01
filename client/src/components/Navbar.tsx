@@ -81,10 +81,10 @@ export function Navbar() {
         <div className="flex items-center justify-between">
           
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 sm:gap-4 font-display font-bold tracking-tighter">
-            <img src="/logo-house.png" alt="UrugoBuy logo" className="h-20 w-20 sm:h-16 sm:w-16 rounded-xl object-cover shadow-sm" />
+          <Link href="/" className="flex items-center gap-3 font-display font-bold tracking-tighter sm:gap-4">
+            <img src="/logo-house.png" alt="UrugoBuy logo" className="h-16 w-16 rounded-xl object-cover shadow-sm sm:h-14 sm:w-14 xl:h-16 xl:w-16" />
             <div className="leading-none">
-              <span className="brand-logo-text text-5xl sm:text-4xl">UrugoBuy<span className="text-primary/50">.</span></span>
+              <span className="brand-logo-text text-4xl sm:text-3xl xl:text-4xl">UrugoBuy<span className="text-primary/50">.</span></span>
               <p className="text-[11px] sm:text-xs font-semibold tracking-wide text-muted-foreground mt-1">
                 {t("brand.tagline")}
               </p>
@@ -92,12 +92,12 @@ export function Navbar() {
           </Link>
 
           {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center space-x-8">
+          <nav className="hidden lg:flex items-center gap-4 xl:gap-6">
             {navLinks.map((link) => (
               <Link 
                 key={link.path} 
                 href={link.path}
-                className={`text-sm font-medium transition-colors hover:text-primary ${
+                className={`rounded-full px-2 py-1 text-sm font-medium transition-colors hover:text-primary ${
                   location === link.path ? "text-primary" : "text-muted-foreground"
                 }`}
               >
@@ -107,8 +107,8 @@ export function Navbar() {
           </nav>
 
           {/* Actions */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            <label className="hidden lg:flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <label className="hidden xl:flex items-center gap-2 text-sm text-muted-foreground">
               <span>{t("nav.market")}</span>
               <select
                 value={market.code}
@@ -123,14 +123,14 @@ export function Navbar() {
               </select>
             </label>
             {user ? (
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden lg:flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">{t("nav.greeting", { name: user.name })}</span>
                 <Button variant="outline" className="rounded-full" onClick={logout}>
                   {t("nav.logout")}
                 </Button>
               </div>
             ) : (
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden lg:flex items-center gap-2">
                 <Button variant="ghost" className="rounded-full" asChild>
                   <Link href="/login">{t("nav.login")}</Link>
                 </Button>
@@ -149,7 +149,7 @@ export function Navbar() {
                     placeholder={t("nav.searchProducts")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-48 lg:w-64 rounded-full bg-background/50 backdrop-blur-sm ${isRTL ? "pr-4 pl-10" : "pl-4 pr-10"}`}
+                    className={`w-44 lg:w-52 xl:w-64 rounded-full bg-background/50 backdrop-blur-sm ${isRTL ? "pr-4 pl-10" : "pl-4 pr-10"}`}
                     onBlur={() => !searchQuery && setIsSearchOpen(false)}
                   />
                   <Button 
@@ -224,13 +224,13 @@ export function Navbar() {
               size="icon" 
               variant="ghost" 
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
-              className="md:hidden rounded-full"
+              className="lg:hidden rounded-full"
             >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </Button>
           </div>
         </div>
-        <div className="hidden lg:flex items-center justify-between pt-3 text-xs text-muted-foreground">
+        <div className="hidden xl:flex items-center justify-between pt-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-4">
             <Link href="/about-us" className="hover:text-primary transition-colors">About Us</Link>
             <Link href="/contact-us" className="hover:text-primary transition-colors">Contact Us</Link>
@@ -246,7 +246,7 @@ export function Navbar() {
 
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
-        <div className="md:hidden absolute top-full left-0 w-full bg-background border-b border-border shadow-xl animate-in slide-in-from-top-2">
+        <div className="lg:hidden absolute top-full left-0 w-full bg-background border-b border-border shadow-xl animate-in slide-in-from-top-2">
           <div className="px-4 pt-4 pb-6 space-y-4">
             <form onSubmit={handleSearch} className="relative mb-6">
               <Input
