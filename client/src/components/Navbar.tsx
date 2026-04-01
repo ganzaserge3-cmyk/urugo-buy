@@ -1,6 +1,6 @@
 import { useState, useEffect, useDeferredValue } from "react";
 import { Link, useLocation } from "wouter";
-import { ShoppingBag, Search, Menu, X, Moon, Sun } from "lucide-react";
+import { ArrowRight, ShoppingBag, Search, Menu, X, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/hooks/use-cart";
 import { useTheme } from "@/hooks/use-theme";
@@ -8,6 +8,13 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useSearchSuggestions } from "@/hooks/use-products";
 import { useI18n } from "@/lib/i18n";
+
+type SearchSuggestion = {
+  id: number;
+  name: string;
+  price?: string;
+  categoryId?: number | null;
+};
 
 export function Navbar() {
   const [location, setLocation] = useLocation();
@@ -40,6 +47,17 @@ export function Navbar() {
       setIsMobileMenuOpen(false);
     }
   };
+
+  const openSuggestedProduct = (productId: number) => {
+    setLocation(`/product/${productId}`);
+    setIsSearchOpen(false);
+    setSearchQuery("");
+    setIsMobileMenuOpen(false);
+  };
+
+  const getSuggestionCategory = (item: SearchSuggestion) => (
+    item.categoryId === 1 ? t("nav.category.fruit") : item.categoryId === 2 ? t("nav.category.food") : t("nav.category.product")
+  );
 
   const navLinks = [
     { name: t("nav.home"), path: "/" },
@@ -144,26 +162,30 @@ export function Navbar() {
                   </Button>
                   {suggestions.length > 0 && (
                     <div className="absolute top-12 left-0 w-full bg-background border border-border rounded-xl shadow-lg overflow-hidden z-50">
-                      {suggestions.map((item: { id: number; name: string; price?: string; categoryId?: number | null }) => (
+                      {suggestions.map((item: SearchSuggestion) => (
                         <button
                           key={item.id}
                           type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted"
+                          className="w-full text-left px-3 py-3 text-sm hover:bg-muted"
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            setLocation(`/product/${item.id}`);
-                            setIsSearchOpen(false);
-                            setSearchQuery("");
+                            openSuggestedProduct(item.id);
                           }}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="font-medium">{item.name}</p>
                               <p className="text-xs text-muted-foreground">
-                                {item.categoryId === 1 ? t("nav.category.fruit") : item.categoryId === 2 ? t("nav.category.food") : t("nav.category.product")}
+                                {getSuggestionCategory(item)}
                               </p>
                             </div>
-                            {item.price && <span className="text-xs text-muted-foreground">{formatCurrency(item.price)}</span>}
+                            <div className="flex items-center gap-3">
+                              {item.price && <span className="text-xs text-muted-foreground">{formatCurrency(item.price)}</span>}
+                              <span className="inline-flex items-center text-xs font-medium text-primary">
+                                View details
+                                <ArrowRight className="ml-1 h-3 w-3" />
+                              </span>
+                            </div>
                           </div>
                         </button>
                       ))}
@@ -208,6 +230,18 @@ export function Navbar() {
             </Button>
           </div>
         </div>
+        <div className="hidden lg:flex items-center justify-between pt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4">
+            <Link href="/about-us" className="hover:text-primary transition-colors">About Us</Link>
+            <Link href="/contact-us" className="hover:text-primary transition-colors">Contact Us</Link>
+            <Link href="/track-order" className="hover:text-primary transition-colors">Track Order</Link>
+            <Link href="/blog" className="hover:text-primary transition-colors">Shopping Guides</Link>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy-policy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+            <Link href="/terms-of-service" className="hover:text-primary transition-colors">Terms & Conditions</Link>
+          </div>
+        </div>
       </div>
 
       {/* Mobile Menu Dropdown */}
@@ -222,6 +256,35 @@ export function Navbar() {
                 className="w-full rounded-xl bg-muted/50 border-transparent"
               />
               <Search className="w-4 h-4 text-muted-foreground absolute right-4 top-3" />
+              {suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-border bg-background shadow-lg">
+                  {suggestions.map((item: SearchSuggestion) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="w-full px-4 py-3 text-left hover:bg-muted"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        openSuggestedProduct(item.id);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-foreground">{item.name}</p>
+                          <p className="text-xs text-muted-foreground">{getSuggestionCategory(item)}</p>
+                        </div>
+                        <div className="text-right">
+                          {item.price && <p className="text-xs text-muted-foreground">{formatCurrency(item.price)}</p>}
+                          <p className="inline-flex items-center text-xs font-medium text-primary">
+                            Details
+                            <ArrowRight className="ml-1 h-3 w-3" />
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </form>
             
             {navLinks.map((link) => (
@@ -236,6 +299,14 @@ export function Navbar() {
                 {link.name}
               </Link>
             ))}
+            <div className="border-t border-border pt-4 space-y-2">
+              <Link href="/privacy-policy" onClick={() => setIsMobileMenuOpen(false)} className="block px-2 py-2 text-sm text-muted-foreground">
+                Privacy Policy
+              </Link>
+              <Link href="/terms-of-service" onClick={() => setIsMobileMenuOpen(false)} className="block px-2 py-2 text-sm text-muted-foreground">
+                Terms & Conditions
+              </Link>
+            </div>
 
             {user ? (
               <Button

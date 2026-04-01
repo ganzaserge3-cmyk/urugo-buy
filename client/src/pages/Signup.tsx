@@ -24,6 +24,26 @@ export default function Signup() {
     confirmPassword: "",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const referralCode = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("ref")?.trim().toUpperCase() || ""
+    : "";
+
+  const redeemReferralFromQuery = async () => {
+    if (!referralCode) return;
+    const res = await fetch("/api/account/referrals/redeem", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${useAuth.getState().token || ""}`,
+      },
+      body: JSON.stringify({ code: referralCode }),
+    });
+    if (!res.ok) return;
+    toast({
+      title: "Referral applied",
+      description: "Your signup bonus has been added to this account.",
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +58,7 @@ export default function Signup() {
     setIsLoading(true);
     try {
       await signup(form);
+      await redeemReferralFromQuery();
       toast({
         title: t("auth.accountCreated"),
         description: t("auth.accountCreatedBody"),
@@ -58,6 +79,7 @@ export default function Signup() {
     setIsLoading(true);
     try {
       await loginWithGoogle();
+      await redeemReferralFromQuery();
       toast({
         title: t("auth.accountCreated"),
         description: t("auth.accountCreatedBody"),
@@ -80,6 +102,11 @@ export default function Signup() {
         <section className="order-2 lg:order-1 border border-border rounded-[2rem] p-8 bg-card shadow-sm">
         <h2 className="font-display text-3xl font-bold mb-2">{t("auth.createAccount")}</h2>
         <p className="text-muted-foreground mb-4">{t("auth.signupBody")}</p>
+        {referralCode && (
+          <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground">
+            Referral code <span className="font-semibold text-foreground">{referralCode}</span> will be applied after signup.
+          </div>
+        )}
         <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm">
           <p className="font-medium text-foreground">
             {firebaseEnabled ? t("auth.firebaseEnabledSignup") : t("auth.firebaseDisabledSignup")}

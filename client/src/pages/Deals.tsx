@@ -31,6 +31,15 @@ function formatPromotionValue(row: PromotionRow) {
   return row.value;
 }
 
+function getCountdownLabel(endsAt: string) {
+  const remaining = new Date(endsAt).getTime() - Date.now();
+  if (remaining <= 0) return "Ending now";
+  const totalHours = Math.ceil(remaining / (1000 * 60 * 60));
+  if (totalHours < 24) return `${totalHours}h left`;
+  const totalDays = Math.ceil(totalHours / 24);
+  return `${totalDays}d left`;
+}
+
 export default function Deals() {
   const { t, formatDateTime } = useI18n();
   const { toast } = useToast();
@@ -116,8 +125,13 @@ export default function Deals() {
                       <p className="text-xs uppercase tracking-[0.2em] text-primary/70 mb-2">{t("deals.live")}</p>
                       <h3 className="font-display text-2xl font-semibold">{promotion.name}</h3>
                     </div>
-                    <div className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-bold">
-                      {formatPromotionValue(promotion)}
+                    <div className="space-y-2 text-right">
+                      <div className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-bold">
+                        {formatPromotionValue(promotion)}
+                      </div>
+                      <div className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium text-foreground">
+                        {getCountdownLabel(promotion.endsAt)}
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-2 text-sm text-muted-foreground">

@@ -4,44 +4,80 @@ import { useSeo } from "@/hooks/use-seo";
 import { getStoredLanguageCode, useI18n } from "@/lib/i18n";
 
 const fallbackPosts: Record<string, { title: string; excerpt: string; body: string }> = {
-  "how-to-buy-fruits-online-safely": {
-    title: "How to Buy Fruits Online Safely",
-    excerpt: "A practical guide to checking freshness signals, photos, descriptions, and store credibility before placing an order.",
-    body: `Buying fruits online should feel trustworthy, not risky.
+  "how-to-choose-quality-products-online-in-rwanda": {
+    title: "How to Choose Quality Products Online in Rwanda",
+    excerpt: "A practical guide to checking photos, descriptions, seller trust signals, and delivery details before you place an order.",
+    body: `Choosing products online in Rwanda starts with clarity.
 
-Start with the product page. A serious ecommerce store should show more than one product image when possible, describe what the buyer actually receives, and explain the difference between pack formats, sizes, or usage.
+Start with the product page. A reliable online store should show a clear product title, readable photos, pricing that makes sense, and a description that tells you what you will actually receive. If a listing feels vague, shoppers are left guessing.
 
-Next, read the product description carefully. Good descriptions explain the item clearly enough that a visitor can understand what they are buying without guessing. This matters for trust, conversions, and customer satisfaction.
+Next, compare quality signals. Look for useful details such as size, material, freshness notes, quantity, or usage information. For home, lifestyle, and grocery products, practical specifics matter much more than marketing language.
 
-Also check whether the website includes visible legal pages, business contact information, and support channels. Real stores usually make privacy, contact, and company information easy to find.
+It also helps to review business trust pages. A serious store should make it easy to find its About page, Contact page, Privacy Policy, and Terms. These pages show that the business has taken the time to explain how it operates and how shoppers can get help.
 
-Finally, review delivery guidance and site quality before placing an order. A trustworthy platform gives visitors enough information to make an informed decision rather than pushing them into a blind purchase.`,
+Before placing an order, check delivery guidance and support options. In Rwanda especially, shoppers benefit from knowing where the business is based, how to ask a question, and what to expect if something needs clarification.
+
+The goal is simple: choose stores that help you make informed decisions instead of rushing you through checkout with incomplete information.`,
   },
-  "weekly-grocery-planning-for-busy-households": {
-    title: "Weekly Grocery Planning for Busy Households",
-    excerpt: "Plan fruit, pantry, and meal-prep shopping in a way that reduces waste and saves time during the week.",
-    body: `A good weekly grocery plan begins with predictable essentials.
+  "tips-for-safe-online-shopping": {
+    title: "Tips for Safe Online Shopping",
+    excerpt: "Learn simple ways to spot trustworthy stores, review product details carefully, and protect yourself while shopping online.",
+    body: `Safe online shopping is usually about small habits, not complicated tools.
 
-Fresh fruit, breakfast staples, and cooking basics often form the core of an efficient shopping routine. When those items are clearly categorized and easy to compare online, the shopper saves time and reduces repeat decision fatigue.
+Start by checking the website itself. Does it have a clear navigation menu, working product pages, visible legal pages, and contact information you can actually use? Stores that hide these basics can feel less dependable.
 
-Households can improve consistency by splitting the basket into short-life items and longer-lasting staples. Fresh berries and leafy greens may be used early in the week, while pantry goods and shelf-stable products support later meals.
+Read product details instead of buying from the image alone. Good stores explain pricing, quantities, and product differences clearly. If the listing is too short or too confusing, it is better to pause and compare another option.
 
-Product detail matters here too. Multiple product photos, specific descriptions, and visible stock signals help shoppers build a basket with more confidence.
+Use secure checkout habits too. Avoid entering sensitive information on pages that feel broken, unfinished, or suspicious. Make sure the business has a support path in case you need help with an order.
 
-The result is a calmer buying process with less waste, fewer forgotten items, and a stronger sense of control over weekly household spending.`,
+It is also smart to keep expectations realistic. Check order summaries, delivery details, and any return or support information before you confirm a purchase. Being careful before checkout is easier than solving a problem after payment.
+
+The safest shopping experience comes from choosing websites that combine useful content, clear structure, and visible accountability.`,
   },
-  "what-makes-a-trustworthy-online-food-store": {
-    title: "What Makes a Trustworthy Online Food Store",
-    excerpt: "We break down the signs of a reliable ecommerce grocery website, from legal pages to product detail quality.",
-    body: `Trust on the internet is built through structure as much as design.
+  "best-home-and-lifestyle-buying-tips": {
+    title: "Best Home and Lifestyle Buying Tips",
+    excerpt: "Build a smarter basket with practical tips for comparing everyday products, planning purchases, and choosing items that fit your home.",
+    body: `Home and lifestyle shopping works best when you focus on usefulness before impulse.
 
-A reliable online store should clearly show who runs the website, how visitors can get support, what the privacy policy says, and what terms apply to site use. These pages signal legitimacy to both users and advertising platforms.
+Start with your actual needs. Whether you are buying kitchen items, home essentials, or everyday personal products, it helps to ask how often you will use the item and whether it solves a real problem in your routine.
 
-Product pages are another strong indicator. When the site presents multiple images, useful descriptions, and clearer shopper guidance, the experience feels much more credible than a generic one-photo listing.
+Compare materials, dimensions, maintenance, and price together instead of looking at only one factor. A lower price is not always the better choice if the item is difficult to maintain or does not suit your space.
 
-Editorial content also helps. Helpful buying guides, service information, and business explanations make the platform more useful to visitors and easier for search engines to understand.
+Read product descriptions carefully and think about context. A useful home product should match the size of your room, your family’s habits, and the way you actually live. Practical details are what make online buying easier.
 
-In short, a trustworthy ecommerce site does more than list products. It provides clarity, accountability, and a reason for visitors to return.`,
+Finally, shop from stores that make comparison easy. Helpful guides, clear categories, and readable product pages all improve decision-making and reduce the chance of buying something that does not fit your home.
+
+The best buying tip is simple: choose with intention. When a website supports that process well, shopping feels calmer and more trustworthy.`,
+  },
+  "how-to-compare-prices-without-sacrificing-quality": {
+    title: "How to Compare Prices Without Sacrificing Quality",
+    excerpt: "A simple way to compare value, product details, and long-term usefulness instead of chasing the lowest number alone.",
+    body: `Price comparison works best when you compare the full offer, not just the headline number.
+
+Start by checking what is actually included. Two products can look similar at first glance while offering different sizes, materials, quantities, or support options. A cheaper product is not always better value if it needs replacing quickly or does not meet your needs.
+
+Next, read the description carefully. Look for concrete details such as dimensions, pack size, materials, or compatibility. When stores provide useful product information, it becomes much easier to understand why one item costs more than another.
+
+It also helps to think about total cost. Delivery timing, shipping fees, and whether you may need to return or replace the item can affect the real value of a purchase. A slightly higher price from a clearer, better-supported store can be the smarter option.
+
+Another useful habit is to compare products within the same category instead of jumping between unrelated listings. Good category pages, filters, and side-by-side details make decision-making easier and reduce guesswork.
+
+The goal is not to spend more. The goal is to spend more carefully. When a store gives you enough information to compare price with quality, you can choose with more confidence.`,
+  },
+  "questions-to-ask-before-buying-household-items-online": {
+    title: "Questions to Ask Before Buying Household Items Online",
+    excerpt: "Use this quick checklist to judge size, material, durability, delivery fit, and support before you commit to a purchase.",
+    body: `Household products are easier to buy online when you slow down and ask a few practical questions first.
+
+Start with size and fit. Will the item work in the room, shelf, or routine you have in mind? Product photos can be helpful, but dimensions and usage notes are what keep you from buying something that feels wrong after delivery.
+
+Then check material and maintenance. Is the item easy to clean, sturdy enough for regular use, and appropriate for the people who will use it most? A product that looks attractive online should still make sense in everyday life.
+
+Ask whether the description answers the basics. A strong listing should explain what the item is for, what is included, and any important details about care, storage, or compatibility. If the page leaves too many questions unanswered, it may be better to keep comparing.
+
+It is also wise to review the support path before you buy. Can you easily contact the store if something is unclear? Are the policy pages and contact details easy to find? Trust becomes much stronger when a website explains how it handles questions and orders.
+
+Buying household items online should feel informed, not rushed. A simple checklist helps you choose products that truly fit your needs and your home.`,
   },
 };
 

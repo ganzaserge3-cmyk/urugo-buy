@@ -1,15 +1,65 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, Star, Mail } from "lucide-react";
+import { ArrowRight, Mail, ShieldCheck, Truck, FileText, BadgeHelp } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProductCard } from "@/components/ProductCard";
 import { useCategories } from "@/hooks/use-categories";
 import { useProducts } from "@/hooks/use-products";
 import { useSubscribeNewsletter } from "@/hooks/use-newsletter";
+import { useWishlist } from "@/hooks/use-wishlist";
 import { useSeo } from "@/hooks/use-seo";
+import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/lib/i18n";
+
+const shoppingGuides = [
+  {
+    slug: "how-to-choose-quality-products-online-in-rwanda",
+    title: "How to choose quality products online in Rwanda",
+    excerpt: "Learn what to check before you buy, from product detail clarity to trust pages and delivery information.",
+  },
+  {
+    slug: "tips-for-safe-online-shopping",
+    title: "Tips for safe online shopping",
+    excerpt: "Simple habits that help you shop more safely, compare stores carefully, and avoid rushed buying decisions.",
+  },
+  {
+    slug: "best-home-and-lifestyle-buying-tips",
+    title: "Best home and lifestyle buying tips",
+    excerpt: "Practical ways to compare household products, plan purchases, and choose items that truly fit your routine.",
+  },
+  {
+    slug: "how-to-compare-prices-without-sacrificing-quality",
+    title: "How to compare prices without sacrificing quality",
+    excerpt: "Compare value, not just the lowest number, by checking product details, support, and long-term usefulness.",
+  },
+  {
+    slug: "questions-to-ask-before-buying-household-items-online",
+    title: "Questions to ask before buying household items online",
+    excerpt: "A quick checklist for judging fit, material, durability, and support before you place an order.",
+  },
+] as const;
+
+const homeFaqs = [
+  {
+    question: "How does ordering work on UrugoBuy?",
+    answer: "Browse products, review item details, add to cart, complete checkout, and follow updates from your order page.",
+  },
+  {
+    question: "Where can I find business and policy information?",
+    answer: "You can use the About Us, Contact Us, Privacy Policy, and Terms & Conditions pages linked in the navigation and footer.",
+  },
+  {
+    question: "Does UrugoBuy publish helpful shopping content?",
+    answer: "Yes. We include shopping guides and practical articles to help visitors make more informed buying decisions online.",
+  },
+  {
+    question: "How can I contact UrugoBuy if I need help?",
+    answer: "You can visit the Contact Us page, use the contact form, or email us directly at urugobuy@gmail.com for general support and questions.",
+  },
+] as const;
 
 export default function Home() {
   const { t, formatCurrency } = useI18n();
@@ -41,9 +91,19 @@ export default function Home() {
   const { data: categories, isLoading: isCategoriesLoading } = useCategories();
   const { data: featuredProducts, isLoading: isProductsLoading } = useProducts({ featured: true });
   const { data: allProducts = [] } = useProducts();
+  const { user } = useAuth();
+  const { data: wishlist = [] } = useWishlist();
   const subscribeMutation = useSubscribeNewsletter();
   const [email, setEmail] = useState("");
   const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
+  const { data: promotions = [] } = useQuery({
+    queryKey: ["home-promotions"],
+    queryFn: async () => {
+      const res = await fetch("/api/promotions");
+      if (!res.ok) return [];
+      return res.json() as Promise<Array<{ id: number; name: string; type: string; value: string; endsAt: string }>>;
+    },
+  });
 
   const recentlyViewedProducts = allProducts.filter((product) => recentlyViewedIds.includes(product.id)).slice(0, 4);
   const recentlyViewedSet = new Set(recentlyViewedIds);
@@ -52,12 +112,20 @@ export default function Home() {
       .map((product) => product.categoryId)
       .filter((value): value is number => value !== null),
   );
+  const wishlistCategorySet = new Set(
+    wishlist
+      .map((product: { categoryId?: number | null }) => product.categoryId)
+      .filter((value: number | null | undefined): value is number => value !== null && value !== undefined),
+  );
   const recommendedProducts = allProducts
     .filter((product) => !recentlyViewedSet.has(product.id))
     .sort((a, b) => {
       const aCategoryBoost = recentlyViewedCategories.has(a.categoryId ?? -1) ? 1 : 0;
       const bCategoryBoost = recentlyViewedCategories.has(b.categoryId ?? -1) ? 1 : 0;
+      const aWishlistBoost = wishlistCategorySet.has(a.categoryId ?? -1) ? 1 : 0;
+      const bWishlistBoost = wishlistCategorySet.has(b.categoryId ?? -1) ? 1 : 0;
       return (
+        bWishlistBoost - aWishlistBoost ||
         bCategoryBoost - aCategoryBoost ||
         Number(b.isFeatured) - Number(a.isFeatured) ||
         Number(b.rating) - Number(a.rating) ||
@@ -65,6 +133,7 @@ export default function Home() {
       );
     })
     .slice(0, 4);
+  const flashPromotions = promotions.slice(0, 2);
 
   useEffect(() => {
     try {
@@ -162,10 +231,10 @@ export default function Home() {
       <section className="border-y border-border/60 bg-card/40">
         <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-6 px-4 sm:px-6 lg:px-8 py-8">
           {[
-            { value: "24h", label: t("home.statRestock") },
-            { value: "100+", label: t("home.statProducts") },
-            { value: "4.9/5", label: t("home.statRating") },
-            { value: formatCurrency(100), label: t("home.statShipping") },
+            { value: "About", label: "Clear business information and site mission" },
+            { value: "Policies", label: "Visible privacy and terms pages" },
+            { value: "Guides", label: "Original shopping content for visitors" },
+            { value: "Support", label: "Contact pathways for questions and help" },
           ].map((item) => (
             <div key={item.label} className="rounded-2xl border border-border bg-background/80 px-5 py-4">
               <p className="font-display text-3xl font-bold">{item.value}</p>
@@ -194,6 +263,32 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {flashPromotions.length > 0 && (
+        <section className="py-10 bg-background border-b border-border/50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-4 lg:grid-cols-2">
+              {flashPromotions.map((promotion) => {
+                const hoursLeft = Math.max(0, Math.ceil((new Date(promotion.endsAt).getTime() - Date.now()) / (1000 * 60 * 60)));
+                return (
+                  <div key={promotion.id} className="rounded-[2rem] border border-border bg-card p-6 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-2">Flash sale</p>
+                      <h2 className="font-display text-2xl font-bold mb-1">{promotion.name}</h2>
+                      <p className="text-sm text-muted-foreground">
+                        {promotion.type.toUpperCase()} offer live now with about {hoursLeft} hour{hoursLeft === 1 ? "" : "s"} left.
+                      </p>
+                    </div>
+                    <Button className="rounded-full shrink-0" asChild>
+                      <Link href="/deals">Shop deal</Link>
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="py-12 bg-background border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -307,8 +402,12 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
               <div>
-                <h2 className="font-display text-3xl font-bold mb-2">{t("home.recommendedTitle")}</h2>
-                <p className="text-muted-foreground max-w-2xl">{t("home.recommendedBody")}</p>
+                <h2 className="font-display text-3xl font-bold mb-2">{user ? `Picked for ${user.name.split(" ")[0]}` : t("home.recommendedTitle")}</h2>
+                <p className="text-muted-foreground max-w-2xl">
+                  {wishlist.length > 0
+                    ? "Blended from your wishlist folders, recent browsing, and featured products."
+                    : t("home.recommendedBody")}
+                </p>
               </div>
               <Button variant="outline" className="rounded-full shrink-0" asChild>
                 <Link href="/compare">{t("home.compareCta")}</Link>
@@ -327,31 +426,57 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
             <div>
-              <h2 className="font-display text-3xl font-bold mb-2">{t("home.whyTrust")}</h2>
+              <h2 className="font-display text-3xl font-bold mb-2">Why shop with UrugoBuy</h2>
               <p className="text-muted-foreground max-w-2xl">
-                {t("home.whyTrustBody")}
+                UrugoBuy is being shaped to feel like a complete business website, not just a product grid. We focus on
+                clearer information, trustworthy navigation, and helpful content that supports better decisions.
               </p>
             </div>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
               {
-                title: t("home.trustTotals"),
-                body: t("home.trustTotalsBody"),
+                title: "Clear information",
+                body: "Product pages, contact details, legal pages, and support routes are easier to find and understand.",
               },
               {
-                title: t("home.trustStock"),
-                body: t("home.trustStockBody"),
+                title: "Helpful buying guidance",
+                body: "Shopping guides and FAQ content make the site more useful for visitors who are still deciding what to buy.",
               },
               {
-                title: t("home.trustTracking"),
-                body: t("home.trustTrackingBody"),
+                title: "Simple support paths",
+                body: "Visitors can move from browsing to checkout with clearer expectations about ordering, delivery, and help.",
               },
             ].map((item) => (
               <div key={item.title} className="rounded-3xl border border-border bg-muted/20 p-6">
                 <h3 className="font-display text-2xl font-semibold mb-3">{item.title}</h3>
                 <p className="text-muted-foreground leading-relaxed">{item.body}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 bg-muted/20 border-t border-border/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl mb-10">
+            <h2 className="font-display text-3xl font-bold mb-2">How ordering works</h2>
+            <p className="text-muted-foreground">
+              The buying process is simple by design so visitors can understand what happens before, during, and after checkout.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-4">
+            {[
+              { icon: FileText, title: "1. Browse", body: "Review categories, product descriptions, and featured collections." },
+              { icon: ShieldCheck, title: "2. Check details", body: "Read delivery information, policies, and product details before adding items." },
+              { icon: BadgeHelp, title: "3. Place your order", body: "Use checkout to confirm your basket, contact details, and preferred fulfillment option." },
+              { icon: Truck, title: "4. Follow updates", body: "Use tracking and support pages if you need order progress or help after checkout." },
+            ].map((step) => (
+              <section key={step.title} className="rounded-3xl border border-border bg-card p-6">
+                <step.icon className="h-8 w-8 text-primary mb-4" />
+                <h3 className="font-display text-2xl font-semibold mb-3">{step.title}</h3>
+                <p className="text-muted-foreground">{step.body}</p>
+              </section>
             ))}
           </div>
         </div>
@@ -374,35 +499,57 @@ export default function Home() {
         </section>
       )}
 
-      {/* Testimonials */}
-      <section className="py-24 bg-background">
+      <section className="py-24 bg-background border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="font-display text-3xl font-bold mb-12 text-center">{t("home.testimonials")}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              { name: "Umwali ketia", role: t("home.customer"), text: "The fruit quality is always excellent and delivery is right on time every week." },
-              { name: "Ganza Serge", role: "Home Cook", text: "Fresh ingredients and fair prices. It makes meal prep so much easier for my family." },
-              { name: "Mvunije Cedric", role: "Fitness Coach", text: "I order weekly for clean eating plans. Produce arrives fresh and packed with care." }
-            ].map((review, idx) => (
-              <motion.div 
-                key={idx}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
+            <div>
+              <h2 className="font-display text-3xl font-bold mb-2">Shopping guides</h2>
+              <p className="text-muted-foreground max-w-2xl">
+                Original articles help visitors evaluate products and shop more confidently, which also makes the site more useful than a thin catalog.
+              </p>
+            </div>
+            <Button variant="outline" className="rounded-full" asChild>
+              <Link href="/blog">Visit the blog</Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+            {shoppingGuides.map((guide, idx) => (
+              <motion.article
+                key={guide.slug}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: idx * 0.1 }}
-                className="p-8 rounded-3xl bg-muted/50 border border-border"
+                className="rounded-3xl border border-border bg-card p-6"
               >
-                <div className="flex space-x-1 mb-6">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <Star key={star} className="w-5 h-5 fill-accent text-accent" />
-                  ))}
-                </div>
-                <p className="text-foreground text-lg mb-6 leading-relaxed">"{review.text}"</p>
-                <div>
-                  <h4 className="font-semibold">{review.name}</h4>
-                  <p className="text-sm text-muted-foreground">{review.role}</p>
-                </div>
-              </motion.div>
+                <p className="text-xs uppercase tracking-[0.24em] text-primary/70 mb-4">Guide</p>
+                <h3 className="font-display text-xl font-semibold mb-3">{guide.title}</h3>
+                <p className="text-muted-foreground leading-relaxed mb-6">{guide.excerpt}</p>
+                <Button variant="outline" className="rounded-full" asChild>
+                  <Link href={`/blog/${guide.slug}`}>
+                    Read article <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </motion.article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 bg-background border-t border-border/50">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-10 text-center">
+            <h2 className="font-display text-3xl font-bold mb-2">Frequently asked questions</h2>
+            <p className="text-muted-foreground">
+              These quick answers help new visitors understand how UrugoBuy works before they continue to shop.
+            </p>
+          </div>
+          <div className="space-y-4">
+            {homeFaqs.map((item) => (
+              <section key={item.question} className="rounded-3xl border border-border bg-card p-6">
+                <h3 className="font-display text-2xl font-semibold mb-3">{item.question}</h3>
+                <p className="text-muted-foreground leading-relaxed">{item.answer}</p>
+              </section>
             ))}
           </div>
         </div>

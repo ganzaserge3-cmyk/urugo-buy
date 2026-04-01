@@ -1,5 +1,5 @@
-import { Link } from "wouter";
-import { Scale, Star, ShoppingBag } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { ArrowRight, Scale, Star, ShoppingBag } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/hooks/use-cart";
@@ -15,6 +15,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const [, navigate] = useLocation();
   const { addItem } = useCart();
   const { toast } = useToast();
   const { t, formatCurrency, formatNumber } = useI18n();
@@ -64,16 +65,41 @@ export function ProductCard({ product }: ProductCardProps) {
   };
 
   const inCompare = compareIds.includes(product.id);
+  const productHref = `/product/${product.id}`;
+
+  const openDetails = () => {
+    navigate(productHref);
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a")) return;
+    openDetails();
+  };
+
+  const handleCardKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a")) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openDetails();
+    }
+  };
 
   return (
-    <motion.div 
+    <motion.article
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.4 }}
       className="group relative flex flex-col bg-card rounded-xl sm:rounded-2xl overflow-hidden card-hover border border-border"
+      role="link"
+      tabIndex={0}
+      aria-label={`View details for ${product.name}`}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
     >
-      <Link href={`/product/${product.id}`} className="block relative aspect-square sm:aspect-[4/5] overflow-hidden bg-muted">
+      <Link href={productHref} className="block relative aspect-square sm:aspect-[4/5] overflow-hidden bg-muted">
         <img
           src={imageSrc}
           alt={product.name}
@@ -102,7 +128,7 @@ export function ProductCard({ product }: ProductCardProps) {
           </span>
         </div>
         
-        <Link href={`/product/${product.id}`} className="block group-hover:underline decoration-2 underline-offset-4 decoration-primary/30">
+        <Link href={productHref} className="block group-hover:underline decoration-2 underline-offset-4 decoration-primary/30">
           <h3 className="font-display font-semibold text-base sm:text-lg text-foreground line-clamp-1">
             {product.name}
           </h3>
@@ -117,6 +143,17 @@ export function ProductCard({ product }: ProductCardProps) {
             {formatCurrency(product.price)}
           </span>
           <div className="flex items-center gap-2">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="rounded-full px-3 text-xs sm:text-sm"
+            >
+              <Link href={productHref}>
+                Details
+                <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+              </Link>
+            </Button>
             <Button
               onClick={handleToggleCompare}
               size="icon"
@@ -137,6 +174,6 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
         </div>
       </div>
-    </motion.div>
+    </motion.article>
   );
 }

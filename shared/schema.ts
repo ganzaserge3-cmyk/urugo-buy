@@ -119,6 +119,7 @@ export const wishlists = pgTable("wishlists", {
   id: serial("id").primaryKey(),
   userEmail: text("user_email").notNull(),
   productId: integer("product_id").notNull().references(() => products.id),
+  folderName: text("folder_name").notNull().default("Favorites"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -139,6 +140,15 @@ export const referralClaims = pgTable("referral_claims", {
   referrerEmail: text("referrer_email").notNull(),
   refereeEmail: text("referee_email").notNull(),
   code: text("code").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const loyaltyRedemptions = pgTable("loyalty_redemptions", {
+  id: serial("id").primaryKey(),
+  userEmail: text("user_email").notNull(),
+  orderId: integer("order_id").references(() => orders.id),
+  pointsRedeemed: integer("points_redeemed").notNull(),
+  discountAmount: numeric("discount_amount", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -391,6 +401,7 @@ export const insertProductReviewSchema = createInsertSchema(productReviews).omit
 export const insertWishlistSchema = createInsertSchema(wishlists).omit({ id: true, createdAt: true });
 export const insertProductAlertSchema = createInsertSchema(productAlerts).omit({ id: true, createdAt: true });
 export const insertReferralClaimSchema = createInsertSchema(referralClaims).omit({ id: true, createdAt: true });
+export const insertLoyaltyRedemptionSchema = createInsertSchema(loyaltyRedemptions).omit({ id: true, createdAt: true });
 export const insertAccountPreferencesSchema = createInsertSchema(accountPreferences).omit({ updatedAt: true });
 export const insertWishlistShareSchema = createInsertSchema(wishlistShares).omit({ id: true, createdAt: true });
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true, createdAt: true });
@@ -439,6 +450,7 @@ export type InsertWishlist = z.infer<typeof insertWishlistSchema>;
 export type ProductAlert = typeof productAlerts.$inferSelect;
 export type InsertProductAlert = z.infer<typeof insertProductAlertSchema>;
 export type ReferralClaim = typeof referralClaims.$inferSelect;
+export type LoyaltyRedemption = typeof loyaltyRedemptions.$inferSelect;
 export type InsertReferralClaim = z.infer<typeof insertReferralClaimSchema>;
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type InsertAccountPreferences = z.infer<typeof insertAccountPreferencesSchema>;

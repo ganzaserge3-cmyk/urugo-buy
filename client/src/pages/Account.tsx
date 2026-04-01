@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
@@ -15,9 +15,10 @@ import {
 import { authFetch } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/hooks/use-seo";
-import { useCreateWishlistShare } from "@/hooks/use-wishlist";
+import { useCreateWishlistShare, useMoveWishlistItem, useWishlistFolders } from "@/hooks/use-wishlist";
 import { useI18n } from "@/lib/i18n";
 import { formatOrderMoney } from "@/lib/order-pricing";
+import { setOrderAccessToken } from "@/lib/order-access";
 
 const defaultPreferences: AccountPreferences = {
   priceDropAlerts: true,
@@ -30,6 +31,7 @@ export default function Account() {
   const { t, formatCurrency, formatDateTime } = useI18n();
   useSeo(t("account.metaTitle"), t("account.metaDescription"), { canonicalPath: "/account", robots: "noindex,follow" });
   const { user, token } = useAuth();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data: summary, refetch: refetchSummary } = useAccountSummary();
   const { data: orders = [], refetch: refetchOrders } = useAccountOrders();
@@ -38,6 +40,8 @@ export default function Account() {
   const savePreferences = useSaveAccountPreferences();
   const redeemReferral = useRedeemReferralCode();
   const createWishlistShare = useCreateWishlistShare();
+  const moveWishlistItem = useMoveWishlistItem();
+  const { data: wishlistFolders = [] } = useWishlistFolders();
 
   const [localPrefs, setLocalPrefs] = useState<AccountPreferences>(defaultPreferences);
   const [supportTopic, setSupportTopic] = useState("");
@@ -50,6 +54,7 @@ export default function Account() {
     { role: "bot", text: t("account.chat.welcome") },
   ]);
   const [wishlistShareLink, setWishlistShareLink] = useState("");
+  const [wishlistFolderDrafts, setWishlistFolderDrafts] = useState<Record<number, string>>({});
   const [referralInput, setReferralInput] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorVerified, setTwoFactorVerified] = useState(false);
@@ -105,6 +110,10 @@ export default function Account() {
   const siteBaseUrl = useMemo(() => {
     return typeof window !== "undefined" ? window.location.origin : "";
   }, []);
+  const referralShareLink = useMemo(() => {
+    if (!siteBaseUrl || !summary?.referralCode) return "";
+    return `${siteBaseUrl}/signup?ref=${encodeURIComponent(summary.referralCode)}`;
+  }, [siteBaseUrl, summary?.referralCode]);
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesQuery =
@@ -158,9 +167,16 @@ export default function Account() {
       toast({ variant: "destructive", title: t("account.toast.reorderFailed"), description: payload.message });
       return;
     }
+    const payload = await res.json().catch(() => null) as { id: number; accessToken?: string } | null;
+    if (payload?.accessToken) {
+      setOrderAccessToken(payload.id, payload.accessToken);
+    }
     toast({ title: t("account.toast.reorderCreated"), description: t("account.toast.reorderCreatedBody") });
     await refetchOrders();
     await refetchSummary();
+    if (payload?.id) {
+      setLocation(`/order-success/${payload.id}`);
+    }
   };
 
   const handleCreateSupportTicket = async (e: React.FormEvent) => {
@@ -312,6 +328,21 @@ export default function Account() {
       toast({ title: t("account.toast.pushEnabled") });
       const rows = await authFetch("/api/account/notifications/subscriptions").then((r) => (r.ok ? r.json() : []));
       setNotificationDevices(Array.isArray(rows) ? rows : []);
+    }
+  };
+
+  const handleMoveWishlistItem = async (productId: number) => {
+    const nextFolder = wishlistFolderDrafts[productId]?.trim();
+    if (!nextFolder) return;
+    try {
+      await moveWishlistItem.mutateAsync({ productId, folderName: nextFolder });
+      toast({ title: "Wishlist updated", description: `Moved item to ${nextFolder}.` });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Move failed",
+        description: error instanceof Error ? error.message : "Could not move wishlist item.",
+      });
     }
   };
 
@@ -470,8 +501,24 @@ export default function Account() {
                 Copy code
               </Button>
             </div>
+            <div className="flex gap-2">
+              <Input value={referralShareLink} readOnly placeholder="Referral signup link" />
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (!referralShareLink) return;
+                  await navigator.clipboard.writeText(referralShareLink);
+                  toast({ title: "Referral link copied" });
+                }}
+              >
+                Copy link
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
               {t("account.bonusPoints", { count: summary?.referralBonusPoints ?? 0 })}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Redeemed so far: {summary?.redeemedPoints ?? 0} points ({formatCurrency(summary?.redeemedDiscount ?? 0)})
             </p>
           </div>
           <div className="border border-border rounded-2xl p-5 bg-card">
@@ -578,6 +625,53 @@ export default function Account() {
             <Button variant="outline" className="rounded-full" onClick={registerPush}>
               {t("account.enablePush")}
             </Button>
+            <div className="space-y-3 pt-2">
+              <div>
+                <h3 className="font-medium">Wishlist folders</h3>
+                <p className="text-sm text-muted-foreground">Group saved products into simple named collections.</p>
+              </div>
+              {wishlistFolders.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No wishlist items yet.</p>
+              ) : (
+                wishlistFolders.map((folder) => (
+                  <div key={folder.folderName} className="rounded-xl border border-border p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium">{folder.folderName}</p>
+                        <p className="text-xs text-muted-foreground">{folder.count} saved item(s)</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {folder.items.slice(0, 4).map((item) => (
+                        <div key={item.id} className="rounded-lg border border-border bg-muted/20 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-xs text-muted-foreground">{formatCurrency(item.price)}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Input
+                                value={wishlistFolderDrafts[item.id] ?? item.folderName}
+                                onChange={(e) => setWishlistFolderDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                className="h-9 w-36"
+                              />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleMoveWishlistItem(item.id)}
+                                disabled={moveWishlistItem.isPending}
+                              >
+                                Move
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
             <div className="space-y-2 pt-2">
               {notificationDevices.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("account.noDevices")}</p>

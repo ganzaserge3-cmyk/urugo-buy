@@ -43,6 +43,7 @@ export default function Checkout() {
     country: t(`checkout.country.${market.code}`),
     couponCode: "",
     giftCardCode: "",
+    loyaltyPointsToRedeem: "",
     deliverySlot: "",
     fulfillmentType: "delivery" as "delivery" | "pickup",
     shippingService: "priority" as "economy" | "priority" | "express" | "pickup",
@@ -66,6 +67,9 @@ export default function Checkout() {
   const [saveAddressForLater, setSaveAddressForLater] = useState(false);
   const [saveAddressLabel, setSaveAddressLabel] = useState("");
   const marketGuide = getMarketGuide(market.code);
+  const loyaltyPointsRequested = token && form.loyaltyPointsToRedeem.trim()
+    ? Math.max(0, Math.floor(Number(form.loyaltyPointsToRedeem)))
+    : undefined;
 
   const quoteItems = items.map((item) => ({ productId: item.id, quantity: item.quantity }));
   const hasItems = quoteItems.length > 0;
@@ -74,6 +78,7 @@ export default function Checkout() {
       items: quoteItems,
       couponCode: form.couponCode || undefined,
       giftCardCode: form.giftCardCode || undefined,
+      loyaltyPointsToRedeem: Number.isFinite(loyaltyPointsRequested) ? loyaltyPointsRequested : undefined,
       country: form.country || undefined,
       fulfillmentType: form.fulfillmentType,
       shippingService: form.shippingService,
@@ -85,6 +90,16 @@ export default function Checkout() {
   const supportedPaymentMethods = quote?.market.supportedPaymentMethods ?? ["cod", "paypal", "card", "momo"];
   const supportedFulfillmentTypes = quote?.market.supportedFulfillmentTypes ?? ["delivery", "pickup"];
   const shippingServices = quote?.market.shippingServices ?? [];
+
+  useEffect(() => {
+    if (!form.loyaltyPointsToRedeem) return;
+    const available = quote?.availableLoyaltyPoints ?? 0;
+    const requested = Math.max(0, Math.floor(Number(form.loyaltyPointsToRedeem) || 0));
+    const nextValue = requested > available ? String(available) : String(requested);
+    if (nextValue !== form.loyaltyPointsToRedeem) {
+      setForm((prev) => ({ ...prev, loyaltyPointsToRedeem: nextValue === "0" ? "" : nextValue }));
+    }
+  }, [form.loyaltyPointsToRedeem, quote?.availableLoyaltyPoints]);
 
   const quickPaymentOptions = [
     {
@@ -324,6 +339,7 @@ export default function Checkout() {
         shippingService: safeShippingService,
         couponCode: form.couponCode || undefined,
         giftCardCode: form.giftCardCode || undefined,
+        loyaltyPointsToRedeem: Number.isFinite(loyaltyPointsRequested) ? loyaltyPointsRequested : undefined,
         deliverySlot: form.deliverySlot || undefined,
         items: quoteItems,
       });
@@ -734,6 +750,38 @@ export default function Checkout() {
                   />
                 </div>
               )}
+              {token && (
+                <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">Loyalty points</p>
+                      <p className="text-sm text-muted-foreground">
+                        {quote?.availableLoyaltyPoints ?? 0} points available to redeem during checkout.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setForm((prev) => ({ ...prev, loyaltyPointsToRedeem: String(quote?.availableLoyaltyPoints ?? 0) }))}
+                      disabled={!quote?.availableLoyaltyPoints}
+                    >
+                      Use max
+                    </Button>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={quote?.availableLoyaltyPoints ?? 0}
+                    placeholder="Points to redeem"
+                    value={form.loyaltyPointsToRedeem}
+                    onChange={(e) => setForm((prev) => ({ ...prev, loyaltyPointsToRedeem: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    100 points = {formatCurrency(1)}. Your quote will cap the discount automatically.
+                  </p>
+                </div>
+              )}
             </div>
             {couponMessage && <p className="text-sm text-muted-foreground">{couponMessage}</p>}
             {riskMessage && <p className="text-sm text-amber-600">{riskMessage}</p>}
@@ -785,6 +833,10 @@ export default function Checkout() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t("checkout.giftCard")}</span>
                 <span>-{formatCurrency(quote?.converted.giftCardDiscount ?? quote?.giftCardDiscount ?? 0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Loyalty</span>
+                <span>-{formatCurrency(quote?.converted.loyaltyDiscount ?? quote?.loyaltyDiscount ?? 0)}</span>
               </div>
               {quote?.taxRate !== undefined && (
                 <div className="flex justify-between">

@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { CartSheet } from "@/components/CartSheet";
+import { CookieBanner } from "@/components/CookieBanner";
 
 // Pages
 import Home from "@/pages/Home";
@@ -72,6 +73,7 @@ function Router() {
       </main>
       <Footer />
       <CartSheet />
+      <CookieBanner />
     </div>
   );
 }

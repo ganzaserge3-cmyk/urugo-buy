@@ -18,8 +18,8 @@ export default function ContactUs() {
   });
 
   const [form, setForm] = useState({
+    name: "",
     contactEmail: "",
-    topic: "",
     message: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,13 +36,17 @@ export default function ContactUs() {
       const res = await fetch("/api/support/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          contactEmail: form.contactEmail,
+          topic: `Website contact form - ${form.name.trim() || "Visitor"}`,
+          message: `Name: ${form.name.trim() || "Not provided"}\n\n${form.message}`,
+        }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({ message: "Could not send message" }));
         throw new Error(payload.message);
       }
-      setForm((prev) => ({ ...prev, topic: "", message: "" }));
+      setForm((prev) => ({ ...prev, name: "", message: "" }));
       toast({ title: t("contact.success"), description: t("contact.successBody") });
     } catch (error) {
       toast({
@@ -59,26 +63,55 @@ export default function ContactUs() {
     <div className="min-h-screen pt-24 pb-20 bg-background px-4">
       <div className="max-w-6xl mx-auto grid lg:grid-cols-[1.1fr_0.9fr] gap-8">
         <section className="rounded-3xl border border-border bg-card p-8 md:p-10">
-          <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-3">{t("contact.eyebrow")}</p>
-          <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">{t("contact.title")}</h1>
-          <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">{t("contact.body")}</p>
+          <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-3">Contact Us</p>
+          <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">Welcome to UrugoBuy - we are here to help you.</h1>
+          <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">
+            If you have any questions, feedback, or need support, feel free to reach out to us. Our team will respond as soon as possible.
+          </p>
+
+          <div className="mt-8 rounded-2xl border border-border bg-muted/30 p-5">
+            <h2 className="font-display text-2xl font-semibold text-foreground mb-3">Get in Touch</h2>
+            <p className="text-sm text-muted-foreground mb-4">We are always ready to assist you with:</p>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>Product inquiries</li>
+              <li>Order questions</li>
+              <li>Website support</li>
+              <li>General information</li>
+            </ul>
+          </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border bg-muted/30 p-4">
-              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Email</p>
-              <p className="mt-2 font-medium text-foreground">support@urugobuy.com</p>
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Contact Information</p>
+              <p className="mt-2 font-medium text-foreground">Email: urugobuy@gmail.com</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Use this address for support, advertising inquiries, partnerships, and business communication.
+                Use this email for product inquiries, support, and general business communication.
               </p>
             </div>
             <div className="rounded-2xl border border-border bg-muted/30 p-4">
-              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Typical Response</p>
-              <p className="mt-2 font-medium text-foreground">1-2 business days</p>
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Location</p>
+              <p className="mt-2 font-medium text-foreground">Kigali, Rwanda</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                We respond to general questions, policy requests, and partnership messages during business hours.
+                Update this if you want to show a more specific service area or office address later.
               </p>
             </div>
           </div>
+
+          <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+            <p className="font-medium text-foreground">Response Time</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We usually respond within <span className="font-medium text-foreground">24-48 hours</span>.
+            </p>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+            <p className="font-medium text-foreground">Our Commitment</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              At UrugoBuy, we value every customer. Your questions, feedback, and suggestions help us improve and serve you better.
+            </p>
+          </div>
+
+          <p className="mt-6 text-sm font-medium text-foreground">UrugoBuy - We're here for you.</p>
 
           <div className="mt-8 grid sm:grid-cols-3 gap-4">
             <Link href="/faq" className="rounded-2xl border border-border bg-muted/30 p-4 hover:border-primary transition-colors">
@@ -97,32 +130,32 @@ export default function ContactUs() {
         </section>
 
         <form onSubmit={handleSubmit} className="rounded-3xl border border-border bg-card p-8 space-y-4">
-          <h2 className="font-display text-2xl font-semibold">{t("footer.contact")}</h2>
+          <h2 className="font-display text-2xl font-semibold">Send Us a Message</h2>
           <p className="text-sm text-muted-foreground">
-            This contact form is intended for customer support, business inquiries, partnerships, and general website questions.
+            Please fill out the form below and we will get back to you shortly.
           </p>
           <Input
+            placeholder="Enter your name"
+            value={form.name}
+            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+            required
+          />
+          <Input
             type="email"
-            placeholder={t("contact.email")}
+            placeholder="Enter your email"
             value={form.contactEmail}
             onChange={(e) => setForm((prev) => ({ ...prev, contactEmail: e.target.value }))}
             required
           />
-          <Input
-            placeholder={t("contact.topic")}
-            value={form.topic}
-            onChange={(e) => setForm((prev) => ({ ...prev, topic: e.target.value }))}
-            required
-          />
           <textarea
             className="min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            placeholder={t("contact.message")}
+            placeholder="Write your message..."
             value={form.message}
             onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))}
             required
           />
           <Button type="submit" className="rounded-full w-full" disabled={isSubmitting}>
-            {isSubmitting ? t("contact.sending") : t("contact.send")}
+            {isSubmitting ? t("contact.sending") : "Send Message"}
           </Button>
         </form>
       </div>

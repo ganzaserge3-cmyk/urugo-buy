@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authFetch } from "@/lib/auth";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -26,6 +26,8 @@ export function useAccountSummary() {
         referralCode: string;
         referralsCount: number;
         referralBonusPoints: number;
+        redeemedPoints: number;
+        redeemedDiscount: number;
       }>;
     },
     enabled: !!token,
@@ -73,6 +75,7 @@ export function useWatchProductAlert() {
 }
 
 export function useRedeemReferralCode() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (code: string) => {
       const res = await authFetch("/api/account/referrals/redeem", {
@@ -85,6 +88,9 @@ export function useRedeemReferralCode() {
         throw new Error(err.message || "Failed to redeem referral code");
       }
       return res.json() as Promise<{ awardedPoints: number; message: string }>;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["account-summary"] });
     },
   });
 }

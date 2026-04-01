@@ -254,6 +254,8 @@ export default function Admin() {
   });
   const [returnUpdateDrafts, setReturnUpdateDrafts] = useState<Record<number, { status: string; note: string; refundAmount: string }>>({});
   const [abandonedRows, setAbandonedRows] = useState<Array<{ email?: string; itemCount: number; createdAt: string }>>([]);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryChannel, setRecoveryChannel] = useState<"email" | "sms">("email");
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
   const [questions, setQuestions] = useState<AdminQuestion[]>([]);
   const [customers, setCustomers] = useState<AdminCustomer[]>([]);
@@ -862,9 +864,24 @@ export default function Admin() {
     const res = await authFetch("/api/admin/abandoned-carts/recover", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: "email" }),
+      body: JSON.stringify({
+        channel: recoveryChannel,
+        email: recoveryEmail.trim() || undefined,
+      }),
     });
-    if (res.ok) await loadAll();
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ message: "Could not start recovery journey." }));
+      toast({ variant: "destructive", title: "Recovery failed", description: payload.message });
+      return;
+    }
+    const payload = await res.json().catch(() => null) as { targeted?: string; sent?: number; journey?: string } | null;
+    toast({
+      title: "Recovery started",
+      description: payload
+        ? `${payload.sent ?? 0} message(s) queued for ${payload.targeted ?? "recent abandoners"} via ${payload.journey ?? recoveryChannel}.`
+        : "Recovery journey has been queued.",
+    });
+    await loadAll();
   };
 
   const handleQuestionReply = async (questionId: number) => {
@@ -1259,6 +1276,9 @@ export default function Admin() {
             <textarea className="min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" placeholder="Body" value={contentPageForm.body} onChange={(e) => setContentPageForm((prev) => ({ ...prev, body: e.target.value }))} required />
             <textarea className="min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" placeholder="Kinyarwanda body" value={contentPageForm.bodyRw} onChange={(e) => setContentPageForm((prev) => ({ ...prev, bodyRw: e.target.value }))} />
             <textarea className="min-h-20 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" placeholder="SEO JSON-LD (optional)" value={contentPageForm.seoJsonLd} onChange={(e) => setContentPageForm((prev) => ({ ...prev, seoJsonLd: e.target.value }))} />
+            <p className="text-xs text-muted-foreground">
+              This field also supports landing-page config JSON like hero eyebrow, CTA labels/links, highlights, sections, and FAQ items.
+            </p>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={contentPageForm.published} onChange={(e) => setContentPageForm((prev) => ({ ...prev, published: e.target.checked }))} />
               Published
@@ -1277,6 +1297,9 @@ export default function Admin() {
                       <textarea className="min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" value={editContentPageForm.body} onChange={(e) => setEditContentPageForm((prev) => ({ ...prev, body: e.target.value }))} />
                       <textarea className="min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" value={editContentPageForm.bodyRw} onChange={(e) => setEditContentPageForm((prev) => ({ ...prev, bodyRw: e.target.value }))} placeholder="Kinyarwanda body" />
                       <textarea className="min-h-20 rounded-md border border-input bg-background px-3 py-2 text-sm w-full" value={editContentPageForm.seoJsonLd} onChange={(e) => setEditContentPageForm((prev) => ({ ...prev, seoJsonLd: e.target.value }))} placeholder="SEO JSON-LD" />
+                      <p className="text-xs text-muted-foreground">
+                        Example keys: `heroEyebrow`, `ctaLabel`, `ctaHref`, `secondaryCtaLabel`, `secondaryCtaHref`, `highlights`, `sections`, `faq`.
+                      </p>
                       <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={editContentPageForm.published} onChange={(e) => setEditContentPageForm((prev) => ({ ...prev, published: e.target.checked }))} />
                         Published
@@ -1331,12 +1354,41 @@ export default function Admin() {
 
           <div className="border border-border rounded-2xl p-5 bg-card space-y-3">
             <h2 className="font-display text-2xl font-semibold">Abandoned Cart Recovery</h2>
-            <Button variant="outline" onClick={triggerRecoveryJourney}>Run Recovery Journey</Button>
+            <div className="grid gap-3 sm:grid-cols-[1fr_160px_auto]">
+              <Input
+                placeholder="Target email (optional)"
+                value={recoveryEmail}
+                onChange={(e) => setRecoveryEmail(e.target.value)}
+              />
+              <select
+                value={recoveryChannel}
+                onChange={(e) => setRecoveryChannel(e.target.value as "email" | "sms")}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="email">Email</option>
+                <option value="sms">SMS</option>
+              </select>
+              <Button variant="outline" onClick={triggerRecoveryJourney}>Run Recovery Journey</Button>
+            </div>
             <div className="space-y-2 text-sm">
               {abandonedRows.slice(0, 8).map((row, index) => (
                 <div key={`${row.createdAt}-${index}`} className="border border-border rounded-lg p-2">
-                  <p>{row.email || "Guest"} abandoned {row.itemCount} item(s)</p>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p>{row.email || "Guest"} abandoned {row.itemCount} item(s)</p>
+                      <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                    </div>
+                    {row.email && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setRecoveryEmail(row.email || "")}
+                      >
+                        Target
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

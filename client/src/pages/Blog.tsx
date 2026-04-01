@@ -6,21 +6,33 @@ import { getStoredLanguageCode, useI18n } from "@/lib/i18n";
 const fallbackPosts = [
   {
     id: 1,
-    slug: "how-to-buy-fruits-online-safely",
-    title: "How to Buy Fruits Online Safely",
-    excerpt: "A practical guide to checking freshness signals, photos, descriptions, and store credibility before placing an order.",
+    slug: "how-to-choose-quality-products-online-in-rwanda",
+    title: "How to Choose Quality Products Online in Rwanda",
+    excerpt: "A practical guide to checking photos, descriptions, seller trust signals, and delivery details before you place an order.",
   },
   {
     id: 2,
-    slug: "weekly-grocery-planning-for-busy-households",
-    title: "Weekly Grocery Planning for Busy Households",
-    excerpt: "Plan fruit, pantry, and meal-prep shopping in a way that reduces waste and saves time during the week.",
+    slug: "tips-for-safe-online-shopping",
+    title: "Tips for Safe Online Shopping",
+    excerpt: "Learn simple ways to spot trustworthy stores, review product details carefully, and protect yourself while shopping online.",
   },
   {
     id: 3,
-    slug: "what-makes-a-trustworthy-online-food-store",
-    title: "What Makes a Trustworthy Online Food Store",
-    excerpt: "We break down the signs of a reliable ecommerce grocery website, from legal pages to product detail quality.",
+    slug: "best-home-and-lifestyle-buying-tips",
+    title: "Best Home and Lifestyle Buying Tips",
+    excerpt: "Build a smarter basket with practical tips for comparing everyday products, planning purchases, and choosing items that fit your home.",
+  },
+  {
+    id: 4,
+    slug: "how-to-compare-prices-without-sacrificing-quality",
+    title: "How to Compare Prices Without Sacrificing Quality",
+    excerpt: "A simple way to compare value, product details, and long-term usefulness instead of chasing the lowest number alone.",
+  },
+  {
+    id: 5,
+    slug: "questions-to-ask-before-buying-household-items-online",
+    title: "Questions to Ask Before Buying Household Items Online",
+    excerpt: "Use this quick checklist to judge size, material, durability, delivery fit, and support before you commit to a purchase.",
   },
 ] as const;
 
@@ -51,6 +63,10 @@ export default function Blog() {
           <p className="leading-relaxed text-muted-foreground">
             Our articles are built to help visitors make better shopping decisions online. We focus on trust, food
             quality, product evaluation, and practical guidance that makes the website more useful than a thin catalog.
+          </p>
+          <p className="mt-3 leading-relaxed text-muted-foreground">
+            We aim to publish readable, original, and shopper-first content that answers common questions before checkout
+            instead of filling the page with generic marketing text.
           </p>
         </div>
 

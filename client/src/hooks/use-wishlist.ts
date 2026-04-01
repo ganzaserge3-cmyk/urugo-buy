@@ -15,18 +15,60 @@ export function useWishlist() {
   });
 }
 
+export function useWishlistFolders() {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["wishlist-folders"],
+    queryFn: async () => {
+      const res = await authFetch("/api/wishlist/folders");
+      if (!res.ok) return [];
+      return res.json() as Promise<Array<{
+        folderName: string;
+        count: number;
+        items: Array<{ id: number; name: string; price: string; imageUrl: string; stockQuantity: number; folderName: string }>;
+      }>>;
+    },
+    enabled: !!token,
+  });
+}
+
 export function useToggleWishlist() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ productId, inWishlist }: { productId: number; inWishlist: boolean }) => {
+    mutationFn: async ({ productId, inWishlist, folderName }: { productId: number; inWishlist: boolean; folderName?: string }) => {
       const res = await authFetch(`/api/wishlist/${productId}`, {
         method: inWishlist ? "DELETE" : "POST",
+        headers: !inWishlist ? { "Content-Type": "application/json" } : undefined,
+        body: inWishlist ? undefined : JSON.stringify(folderName ? { folderName } : {}),
       });
       if (!res.ok) throw new Error("Wishlist update failed");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wishlist"] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-folders"] });
+    },
+  });
+}
+
+export function useMoveWishlistItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ productId, folderName }: { productId: number; folderName: string }) => {
+      const res = await authFetch(`/api/wishlist/${productId}/folder`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderName }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({ message: "Failed to move wishlist item" }));
+        throw new Error(payload.message || "Failed to move wishlist item");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wishlist"] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-folders"] });
     },
   });
 }
@@ -67,6 +109,7 @@ export function useImportSharedWishlist() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wishlist"] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-folders"] });
     },
   });
 }

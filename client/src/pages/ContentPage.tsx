@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams } from "wouter";
+import { Link, useParams } from "wouter";
+import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useSeo } from "@/hooks/use-seo";
 import { getStoredLanguageCode, useI18n } from "@/lib/i18n";
 
@@ -98,12 +100,55 @@ type ContentPageProps = {
   forcedSlug?: string;
 };
 
+type ContentPageRecord = {
+  title: string;
+  description: string;
+  body: string;
+  seoJsonLd?: string | null;
+};
+
+type LandingPageConfig = {
+  heroEyebrow?: string;
+  ctaLabel?: string;
+  ctaHref?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaHref?: string;
+  highlights?: string[];
+  sections?: Array<{ title: string; body: string }>;
+  faq?: Array<{ question: string; answer: string }>;
+};
+
+function parseJsonObject(raw: string | null | undefined) {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown> | Record<string, unknown>[];
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseLandingPageConfig(raw: string | null | undefined): LandingPageConfig | null {
+  const parsed = parseJsonObject(raw);
+  if (!parsed || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as LandingPageConfig;
+}
+
+function splitBody(body: string) {
+  return body
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
 export default function ContentPage({ forcedSlug }: ContentPageProps) {
   const { t, market, markets } = useI18n();
   const { slug = "" } = useParams<{ slug: string }>();
   const resolvedSlug = forcedSlug || slug;
   const currentLanguage = getStoredLanguageCode() as "en" | "fr" | "ar" | "rw";
-  const [page, setPage] = useState<{ title: string; description: string; body: string } | null>(null);
+  const [page, setPage] = useState<ContentPageRecord | null>(null);
 
   useEffect(() => {
     if (!resolvedSlug) {
@@ -116,7 +161,18 @@ export default function ContentPage({ forcedSlug }: ContentPageProps) {
       .catch(() => setPage(fallbackPages[resolvedSlug as keyof typeof fallbackPages]?.[currentLanguage] || fallbackPages[resolvedSlug as keyof typeof fallbackPages]?.en || null));
   }, [currentLanguage, market.language, resolvedSlug]);
 
-  useSeo(page ? `${page.title} - UrugoBuy` : t("content.metaTitle"), page?.description || t("content.metaDescription"));
+  const parsedSeoJsonLd = parseJsonObject(page?.seoJsonLd);
+  const landingConfig = parseLandingPageConfig(page?.seoJsonLd);
+  const bodyBlocks = splitBody(page?.body || "");
+
+  useSeo(
+    page ? `${page.title} - UrugoBuy` : t("content.metaTitle"),
+    page?.description || t("content.metaDescription"),
+    {
+      canonicalPath: resolvedSlug ? `/${resolvedSlug}` : undefined,
+      jsonLd: parsedSeoJsonLd,
+    },
+  );
 
   if (!page) {
     return <div className="min-h-screen pt-24 px-4">{t("content.notFound")}</div>;
@@ -125,9 +181,75 @@ export default function ContentPage({ forcedSlug }: ContentPageProps) {
   return (
     <div className="min-h-screen pt-24 pb-20 px-4 bg-background">
       <div className="max-w-4xl mx-auto">
-        <h1 className="font-display text-4xl font-bold mb-3">{page.title}</h1>
-        <p className="text-muted-foreground mb-4">{page.description}</p>
-        <article className="whitespace-pre-line leading-relaxed">{page.body}</article>
+        <section className="rounded-[2rem] border border-border bg-card p-8 md:p-10 shadow-sm">
+          <div className="max-w-3xl">
+            <p className="text-sm uppercase tracking-[0.24em] text-primary/70 mb-3">
+              {landingConfig?.heroEyebrow || "Content page"}
+            </p>
+            <h1 className="font-display text-4xl md:text-5xl font-bold mb-3">{page.title}</h1>
+            <p className="text-lg text-muted-foreground mb-6">{page.description}</p>
+            {(landingConfig?.ctaLabel || landingConfig?.secondaryCtaLabel) && (
+              <div className="flex flex-wrap gap-3">
+                {landingConfig?.ctaLabel && landingConfig?.ctaHref && (
+                  <Button className="rounded-full" asChild>
+                    <Link href={landingConfig.ctaHref}>
+                      {landingConfig.ctaLabel} <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                )}
+                {landingConfig?.secondaryCtaLabel && landingConfig?.secondaryCtaHref && (
+                  <Button variant="outline" className="rounded-full" asChild>
+                    <Link href={landingConfig.secondaryCtaHref}>{landingConfig.secondaryCtaLabel}</Link>
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {landingConfig?.highlights && landingConfig.highlights.length > 0 && (
+          <section className="mt-8 grid gap-4 md:grid-cols-3">
+            {landingConfig.highlights.map((item) => (
+              <div key={item} className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
+                {item}
+              </div>
+            ))}
+          </section>
+        )}
+
+        <article className="mt-8 rounded-[2rem] border border-border bg-card p-8 md:p-10 space-y-5 leading-relaxed">
+          {bodyBlocks.map((block, index) => (
+            <p key={`${index}-${block.slice(0, 16)}`} className="text-foreground whitespace-pre-line">
+              {block}
+            </p>
+          ))}
+        </article>
+
+        {landingConfig?.sections && landingConfig.sections.length > 0 && (
+          <section className="mt-8 grid gap-4 md:grid-cols-2">
+            {landingConfig.sections.map((section) => (
+              <div key={section.title} className="rounded-2xl border border-border bg-card p-6">
+                <h2 className="font-display text-2xl font-semibold mb-3">{section.title}</h2>
+                <p className="text-muted-foreground whitespace-pre-line">{section.body}</p>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {landingConfig?.faq && landingConfig.faq.length > 0 && (
+          <section className="mt-8 rounded-[2rem] border border-border bg-card p-8 md:p-10">
+            <h2 className="font-display text-3xl font-semibold mb-6">Frequently asked questions</h2>
+            <div className="space-y-4">
+              {landingConfig.faq.map((item) => (
+                <div key={item.question} className="rounded-2xl border border-border bg-background p-5">
+                  <h3 className="font-medium mb-2">{item.question}</h3>
+                  <p className="text-sm text-muted-foreground whitespace-pre-line">{item.answer}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {resolvedSlug === "international-shopping" && (
           <div className="mt-10 space-y-8">
             <section className="rounded-3xl border border-border bg-card p-6">

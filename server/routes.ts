@@ -30,6 +30,7 @@ import {
   currencyRates,
   coupons,
   giftCards,
+  loyaltyRedemptions,
   notificationLogs,
   notificationSubscriptions,
   orderItems,
@@ -66,6 +67,7 @@ type SessionValue = {
 const sessions = new Map<string, SessionValue>();
 const abandonedCartLog: Array<{ email?: string; itemCount: number; createdAt: string }> = [];
 const firebaseSessionCache = new Map<string, { session: SessionValue; expiresAt: number }>();
+const LOYALTY_POINT_VALUE_USD = 0.01;
 
 function isValidMediaUrl(value: string): boolean {
   if (!value || !value.trim()) return false;
@@ -575,6 +577,65 @@ async function computeGiftCardDiscount(giftCardCode: string | undefined, totalBe
   return {
     discount: roundCurrency(discount),
     giftCard: { code: giftCard.code },
+  };
+}
+
+async function getLoyaltySnapshot(email: string) {
+  const [spendRows, referralRows, redemptionRows] = await Promise.all([
+    db.select({ total: orders.total }).from(orders).where(eq(orders.customerEmail, email)),
+    db.select().from(referralClaims).where(eq(referralClaims.referrerEmail, email)),
+    db.select({
+      pointsRedeemed: loyaltyRedemptions.pointsRedeemed,
+      discountAmount: loyaltyRedemptions.discountAmount,
+    }).from(loyaltyRedemptions).where(eq(loyaltyRedemptions.userEmail, email)),
+  ]);
+
+  const spend = spendRows.reduce((sum, row) => sum + Number(row.total), 0);
+  const referralBonusPoints = referralRows.length * 100;
+  const earnedPoints = Math.floor(spend) + referralBonusPoints;
+  const redeemedPoints = redemptionRows.reduce((sum, row) => sum + (row.pointsRedeemed || 0), 0);
+  const redeemedDiscount = redemptionRows.reduce((sum, row) => sum + Number(row.discountAmount || 0), 0);
+  const availablePoints = Math.max(0, earnedPoints - redeemedPoints);
+  const tier = earnedPoints >= 2000 ? "Gold" : earnedPoints >= 800 ? "Silver" : "Bronze";
+  const nextTier = tier === "Bronze" ? "Silver" : tier === "Silver" ? "Gold" : null;
+  const nextTierThreshold = tier === "Bronze" ? 800 : tier === "Silver" ? 2000 : null;
+  const currentTierFloor = tier === "Bronze" ? 0 : tier === "Silver" ? 800 : 2000;
+  const pointsToNextTier = nextTierThreshold ? Math.max(0, nextTierThreshold - earnedPoints) : 0;
+  const tierProgressPercent = nextTierThreshold
+    ? Math.min(100, Math.round(((earnedPoints - currentTierFloor) / (nextTierThreshold - currentTierFloor)) * 100))
+    : 100;
+
+  return {
+    spend,
+    referralBonusPoints,
+    referralsCount: referralRows.length,
+    earnedPoints,
+    redeemedPoints,
+    redeemedDiscount: roundCurrency(redeemedDiscount),
+    availablePoints,
+    tier,
+    nextTier,
+    pointsToNextTier,
+    tierProgressPercent,
+    referralCode: referralCodeFromEmail(email),
+  };
+}
+
+function computeLoyaltyRedemption(requestedPoints: number | undefined, availablePoints: number, totalBeforeRedemption: number) {
+  const sanitizedRequested = Math.max(0, Math.floor(requestedPoints || 0));
+  if (!sanitizedRequested || !availablePoints || totalBeforeRedemption <= 0) {
+    return {
+      pointsRedeemed: 0,
+      loyaltyDiscount: 0,
+    };
+  }
+
+  const maxPointsByOrderTotal = Math.floor(roundCurrency(totalBeforeRedemption) / LOYALTY_POINT_VALUE_USD);
+  const pointsRedeemed = Math.min(sanitizedRequested, availablePoints, maxPointsByOrderTotal);
+
+  return {
+    pointsRedeemed,
+    loyaltyDiscount: roundCurrency(pointsRedeemed * LOYALTY_POINT_VALUE_USD),
   };
 }
 
@@ -1727,7 +1788,12 @@ export async function registerRoutes(
       const ids = rows.map((r) => r.productId);
       if (ids.length === 0) return res.json([]);
       const wishlistProducts = await db.select().from(products).where(inArray(products.id, ids));
-      return res.json(wishlistProducts);
+      return res.json(
+        wishlistProducts.map((product) => ({
+          ...product,
+          folderName: rows.find((row) => row.productId === product.id)?.folderName || "Favorites",
+        })),
+      );
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
         return res.status(401).json({ message: "Unauthorized" });
@@ -1740,9 +1806,16 @@ export async function registerRoutes(
     try {
       const session = await requireAuth(req);
       const productId = Number(req.params.productId);
+      const input = z.object({
+        folderName: z.string().min(1).max(60).optional(),
+      }).parse(req.body ?? {});
       const existing = await db.select().from(wishlists).where(and(eq(wishlists.userEmail, session.email), eq(wishlists.productId, productId))).limit(1);
       if (existing.length === 0) {
-        await db.insert(wishlists).values({ userEmail: session.email, productId });
+        await db.insert(wishlists).values({
+          userEmail: session.email,
+          productId,
+          folderName: input.folderName?.trim() || "Favorites",
+        });
       }
       return res.json({ ok: true });
     } catch (err) {
@@ -1820,6 +1893,63 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/wishlist/folders", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const rows = await db.select().from(wishlists).where(eq(wishlists.userEmail, session.email)).orderBy(asc(wishlists.folderName), desc(wishlists.createdAt));
+      const ids = rows.map((row) => row.productId);
+      if (ids.length === 0) return res.json([]);
+      const wishlistProducts = await db.select().from(products).where(inArray(products.id, ids));
+      const grouped = rows.reduce<Record<string, Array<typeof wishlistProducts[number] & { folderName: string }>>>((acc, row) => {
+        const product = wishlistProducts.find((item) => item.id === row.productId);
+        if (!product) return acc;
+        const folderName = row.folderName || "Favorites";
+        acc[folderName] ||= [];
+        acc[folderName].push({ ...product, folderName });
+        return acc;
+      }, {});
+      return res.json(
+        Object.entries(grouped).map(([folderName, items]) => ({
+          folderName,
+          count: items.length,
+          items,
+        })),
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/wishlist/:productId/folder", async (req, res) => {
+    try {
+      const session = await requireAuth(req);
+      const productId = Number(req.params.productId);
+      const input = z.object({
+        folderName: z.string().min(1).max(60),
+      }).parse(req.body);
+      const [updated] = await db
+        .update(wishlists)
+        .set({ folderName: input.folderName.trim() || "Favorites" })
+        .where(and(eq(wishlists.userEmail, session.email), eq(wishlists.productId, productId)))
+        .returning();
+      if (!updated) {
+        return res.status(404).json({ message: "Wishlist item not found" });
+      }
+      return res.json({ ok: true, folderName: updated.folderName });
+    } catch (err) {
+      if (err instanceof Error && err.message === "Unauthorized") {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/cart/abandoned", async (req, res) => {
     try {
       const input = z.object({
@@ -1866,6 +1996,7 @@ export async function registerRoutes(
   app.post(api.checkout.quote.path, async (req, res) => {
     try {
       const input = api.checkout.quote.input.parse(req.body);
+      const session = await getSession(req);
       const quote = await storage.getCheckoutQuote({ items: input.items });
       const market = await getMarketPricingContext(input.country);
       const shippingPlan = computeShippingPlan({
@@ -1880,7 +2011,21 @@ export async function registerRoutes(
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
       const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
       const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
-      const total = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
+      let availableLoyaltyPoints = 0;
+      if ((input.loyaltyPointsToRedeem || 0) > 0 && !session) {
+        return res.status(401).json({ message: "Sign in to redeem loyalty points." });
+      }
+      if (session) {
+        const loyalty = await getLoyaltySnapshot(session.email);
+        availableLoyaltyPoints = loyalty.availablePoints;
+      }
+      const totalAfterGiftCard = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
+      const { pointsRedeemed, loyaltyDiscount } = computeLoyaltyRedemption(
+        input.loyaltyPointsToRedeem,
+        availableLoyaltyPoints,
+        totalAfterGiftCard,
+      );
+      const total = Math.max(0, roundCurrency(totalAfterGiftCard - loyaltyDiscount));
       res.json({
         ...quote,
         shippingFee,
@@ -1888,6 +2033,9 @@ export async function registerRoutes(
         taxRate: market.taxRate,
         discount,
         giftCardDiscount,
+        loyaltyDiscount,
+        loyaltyPointsRedeemed: pointsRedeemed,
+        availableLoyaltyPoints,
         couponCode: coupon?.code,
         giftCardCode: giftCard?.code,
         total,
@@ -1919,6 +2067,7 @@ export async function registerRoutes(
           tax: convertAmount(regionalTax, market.exchangeRate),
           discount: convertAmount(discount, market.exchangeRate),
           giftCardDiscount: convertAmount(giftCardDiscount, market.exchangeRate),
+          loyaltyDiscount: convertAmount(loyaltyDiscount, market.exchangeRate),
           total: convertAmount(total, market.exchangeRate),
         },
       });
@@ -1939,6 +2088,7 @@ export async function registerRoutes(
   app.post(api.orders.create.path, async (req, res) => {
     try {
       const input = api.orders.create.input.parse(req.body);
+      const session = await getSession(req);
       const market = await getMarketPricingContext(input.country);
       const paymentMethod = input.paymentMethod || "cod";
       const fulfillmentType = input.fulfillmentType || "delivery";
@@ -1972,7 +2122,21 @@ export async function registerRoutes(
       const { discount, coupon } = await computeDiscount(input.couponCode, quote.subtotal);
       const totalAfterCoupon = Math.max(0, roundCurrency(totalBeforeDiscounts - discount));
       const { discount: giftCardDiscount, giftCard } = await computeGiftCardDiscount(input.giftCardCode, totalAfterCoupon);
-      const finalTotal = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
+      let availableLoyaltyPoints = 0;
+      if ((input.loyaltyPointsToRedeem || 0) > 0) {
+        if (!session) {
+          return res.status(401).json({ message: "Sign in to redeem loyalty points." });
+        }
+        const loyalty = await getLoyaltySnapshot(session.email);
+        availableLoyaltyPoints = loyalty.availablePoints;
+      }
+      const totalAfterGiftCard = Math.max(0, roundCurrency(totalAfterCoupon - giftCardDiscount));
+      const { pointsRedeemed, loyaltyDiscount } = computeLoyaltyRedemption(
+        input.loyaltyPointsToRedeem,
+        availableLoyaltyPoints,
+        totalAfterGiftCard,
+      );
+      const finalTotal = Math.max(0, roundCurrency(totalAfterGiftCard - loyaltyDiscount));
 
       await db
         .update(orders)
@@ -1989,6 +2153,14 @@ export async function registerRoutes(
           .update(giftCards)
           .set({ balance: sql`GREATEST(0, ${giftCards.balance} - ${giftCardDiscount})` })
           .where(eq(giftCards.code, giftCard.code));
+      }
+      if (session && pointsRedeemed > 0 && loyaltyDiscount > 0) {
+        await db.insert(loyaltyRedemptions).values({
+          userEmail: session.email,
+          orderId: order.id,
+          pointsRedeemed,
+          discountAmount: loyaltyDiscount.toFixed(2),
+        });
       }
       await db.insert(orderMeta).values({
         orderId: order.id,
@@ -3232,38 +3404,19 @@ export async function registerRoutes(
   app.get("/api/account/summary", async (req, res) => {
     try {
       const session = await requireAuth(req);
-      const rows = await db
-        .select({
-          total: orders.total,
-        })
-        .from(orders)
-        .where(eq(orders.customerEmail, session.email));
-      const spend = rows.reduce((sum, row) => sum + Number(row.total), 0);
-      const referralCode = referralCodeFromEmail(session.email);
-      const referralRows = await db
-        .select()
-        .from(referralClaims)
-        .where(eq(referralClaims.referrerEmail, session.email));
-      const referralBonusPoints = referralRows.length * 100;
-      const points = Math.floor(spend) + referralBonusPoints;
-      const tier = points >= 2000 ? "Gold" : points >= 800 ? "Silver" : "Bronze";
-      const nextTier = tier === "Bronze" ? "Silver" : tier === "Silver" ? "Gold" : null;
-      const nextTierThreshold = tier === "Bronze" ? 800 : tier === "Silver" ? 2000 : null;
-      const currentTierFloor = tier === "Bronze" ? 0 : tier === "Silver" ? 800 : 2000;
-      const pointsToNextTier = nextTierThreshold ? Math.max(0, nextTierThreshold - points) : 0;
-      const tierProgressPercent = nextTierThreshold
-        ? Math.min(100, Math.round(((points - currentTierFloor) / (nextTierThreshold - currentTierFloor)) * 100))
-        : 100;
+      const loyalty = await getLoyaltySnapshot(session.email);
       return res.json({
-        totalSpend: spend,
-        loyaltyPoints: points,
-        tier,
-        nextTier,
-        pointsToNextTier,
-        tierProgressPercent,
-        referralCode,
-        referralsCount: referralRows.length,
-        referralBonusPoints,
+        totalSpend: loyalty.spend,
+        loyaltyPoints: loyalty.availablePoints,
+        tier: loyalty.tier,
+        nextTier: loyalty.nextTier,
+        pointsToNextTier: loyalty.pointsToNextTier,
+        tierProgressPercent: loyalty.tierProgressPercent,
+        referralCode: loyalty.referralCode,
+        referralsCount: loyalty.referralsCount,
+        referralBonusPoints: loyalty.referralBonusPoints,
+        redeemedPoints: loyalty.redeemedPoints,
+        redeemedDiscount: loyalty.redeemedDiscount,
       });
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") {
@@ -3287,16 +3440,16 @@ export async function registerRoutes(
       }
 
       const sourceRows = await db.select().from(wishlists).where(eq(wishlists.userEmail, share.userEmail));
-      const sourceIds = Array.from(new Set(sourceRows.map((row) => row.productId)));
-      if (sourceIds.length === 0) return res.json({ ok: true, imported: 0 });
+      if (sourceRows.length === 0) return res.json({ ok: true, imported: 0 });
 
       const existing = await db.select().from(wishlists).where(eq(wishlists.userEmail, session.email));
       const existingIds = new Set(existing.map((row) => row.productId));
-      const rowsToInsert = sourceIds
-        .filter((id) => !existingIds.has(id))
-        .map((productId) => ({
+      const rowsToInsert = sourceRows
+        .filter((row) => !existingIds.has(row.productId))
+        .map((row) => ({
           userEmail: session.email,
-          productId,
+          productId: row.productId,
+          folderName: row.folderName || "Favorites",
         }));
 
       if (rowsToInsert.length > 0) {

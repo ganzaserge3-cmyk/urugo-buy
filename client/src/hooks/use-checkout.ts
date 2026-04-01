@@ -1,13 +1,14 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, type CheckoutQuoteInput, type CreateOrderInput } from "@shared/routes";
 import { getOrderAccessHeaders } from "@/lib/order-access";
+import { authFetch } from "@/lib/auth";
 
 export function useCheckoutQuote(input: CheckoutQuoteInput, enabled = true) {
   return useQuery({
     queryKey: [api.checkout.quote.path, input],
     queryFn: async () => {
       const validated = api.checkout.quote.input.parse(input);
-      const res = await fetch(api.checkout.quote.path, {
+      const res = await authFetch(api.checkout.quote.path, {
         method: api.checkout.quote.method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(validated),
@@ -28,7 +29,7 @@ export function useCreateOrder() {
   return useMutation({
     mutationFn: async (payload: CreateOrderInput) => {
       const validated = api.orders.create.input.parse(payload);
-      const res = await fetch(api.orders.create.path, {
+      const res = await authFetch(api.orders.create.path, {
         method: api.orders.create.method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(validated),
