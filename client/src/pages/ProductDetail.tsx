@@ -1,6 +1,6 @@
 import { useParams } from "wouter";
 import { useEffect, useMemo, useState } from "react";
-import { Star, ShoppingBag, ArrowLeft, Check, ShieldCheck, Package, Heart, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Star, ShoppingBag, ArrowLeft, Check, ShieldCheck, Package, Heart, ChevronLeft, ChevronRight, X, Info, Truck, ClipboardList } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -351,6 +351,26 @@ export default function ProductDetail() {
       body: "If something is unclear, shoppers can use the Contact page, product questions, or order tracking pages for follow-up support.",
     },
   ];
+  const detailSections = [
+    {
+      id: "description",
+      title: "Description",
+      icon: Info,
+      body: product.description || t("product.fallbackDescription"),
+    },
+    {
+      id: "specifications",
+      title: "Specifications",
+      icon: ClipboardList,
+      body: `Category: ${productCategoryLabel}. Selected size: ${selectedSize}. Selected pack: ${selectedPack}. Current stock visibility: ${variantStock} unit${variantStock === 1 ? "" : "s"} available for this selection.`,
+    },
+    {
+      id: "delivery",
+      title: "Delivery & support",
+      icon: Truck,
+      body: `Estimated delivery for ${market.label} is ${marketGuide.deliveryDays[0]}-${marketGuide.deliveryDays[1]} days. If you need help before or after ordering, you can use the product questions section, Contact page, or order tracking tools.`,
+    },
+  ] as const;
 
   const submitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,9 +561,17 @@ export default function ProductDetail() {
               {formatCurrency(product.price)}
             </div>
             
-            <p className="text-lg text-muted-foreground leading-relaxed mb-8 border-b border-border pb-8">
-              {product.description || t("product.fallbackDescription")}
-            </p>
+            <div className="mb-8 space-y-4 border-b border-border pb-8">
+              {detailSections.map((section) => (
+                <section key={section.id} className="rounded-3xl border border-border bg-card p-5">
+                  <div className="flex items-center gap-3">
+                    <section.icon className="h-5 w-5 text-primary" />
+                    <h2 className="font-display text-xl font-semibold">{section.title}</h2>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{section.body}</p>
+                </section>
+              ))}
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 mb-8">
               {productDetailCards.map((item) => (
                 <div key={item.title} className="rounded-3xl border border-border bg-muted/20 p-5">
@@ -739,6 +767,33 @@ export default function ProductDetail() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </section>
+        <section className="mt-14 border-t border-border pt-10">
+          <div className="rounded-[2rem] border border-border bg-card p-6 md:p-8">
+            <p className="text-xs uppercase tracking-[0.24em] text-primary/70">Before you buy</p>
+            <h2 className="mt-2 font-display text-3xl font-bold">Quick things shoppers usually want to know</h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  title: "What you will see",
+                  body: "This product page shows the gallery, key details, selected buying options, delivery guidance, reviews, and related items in one place.",
+                },
+                {
+                  title: "How to compare it",
+                  body: "Use the image gallery, price, rating, and pack information together instead of relying on the photo alone.",
+                },
+                {
+                  title: "If you need help",
+                  body: "Use the product questions area or the Contact page if anything about the listing, delivery, or support path is unclear.",
+                },
+              ].map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border bg-background p-5">
+                  <h3 className="font-display text-xl font-semibold">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
