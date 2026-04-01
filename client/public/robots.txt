@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /account
+Disallow: /checkout
+Disallow: /login
+Disallow: /signup
+Disallow: /order-success
+
+Sitemap: https://urugo-buy.vercel.app/sitemap.xml
